@@ -1,0 +1,113 @@
+"""
+도구 2: get_db_data - 내부 DB 조회 (잔고 / 거래내역 / 포트폴리오 분석)
+TODO: Oracle + Redis 연동 시 _query_*() 함수 내부를 실제 쿼리로 교체
+"""
+from typing import Literal
+
+
+def get_db_data(
+    type: Literal["balance", "trades", "portfolio"],
+    user_context: dict,
+    limit: int = 3,
+) -> dict:
+    """
+    내부 DB에서 사용자 데이터를 조회합니다.
+
+    Args:
+        type: "balance" | "trades" | "portfolio"
+        user_context: 세션에서 주입된 {"user_id": ..., "account_id": ...}
+        limit: trades 조회 시 최근 건수 (기본값 3)
+
+    Returns:
+        type별 상이한 딕셔너리
+    """
+    account_id = user_context["account_id"]
+
+    if type == "balance":
+        return _query_balance(account_id)
+    elif type == "trades":
+        return _query_trades(account_id, limit)
+    elif type == "portfolio":
+        return _query_portfolio(account_id)
+    else:
+        raise ValueError(f"Unknown type: {type}")
+
+
+# ── balance ──────────────────────────────────────────────────────────────────
+
+def _query_balance(account_id: str) -> dict:
+    # TODO: Oracle SELECT FROM accounts WHERE account_id = :account_id + Redis 캐시로 교체
+    return {
+        "krw_available": 1_500_000,
+        "krw_total":     2_000_000,
+        "usd_available": 500.0,
+        "usd_total":     800.0,
+        "total_eval":    5_500_000,
+    }
+
+
+# ── trades ───────────────────────────────────────────────────────────────────
+
+def _query_trades(account_id: str, limit: int) -> dict:
+    # TODO: Oracle SELECT FROM trades WHERE account_id = :account_id ORDER BY executed_at DESC FETCH FIRST :limit ROWS ONLY 로 교체
+    recent_all = [
+        {"stock_name": "삼성전자", "side": "buy",  "price": 75_000, "quantity": 10, "executed_at": "2026-03-15"},
+        {"stock_name": "NAVER",   "side": "sell", "price": 210_000, "quantity": 5, "executed_at": "2026-03-14"},
+        {"stock_name": "SK하이닉스","side": "buy", "price": 195_000, "quantity": 3, "executed_at": "2026-03-12"},
+        {"stock_name": "카카오",   "side": "sell", "price": 52_000,  "quantity": 8, "executed_at": "2026-03-10"},
+    ]
+    return {
+        "total":      20,
+        "buy_count":  12,
+        "sell_count": 8,
+        "recent":     recent_all[:limit],
+    }
+
+
+# ── portfolio ─────────────────────────────────────────────────────────────────
+
+def _query_portfolio(account_id: str) -> dict:
+    # TODO: portfolio_snapshots WHERE account_id = :account_id + Redis 실시간 시세로 교체
+    return {
+        # 누적 수익
+        "total_return":    12.3,
+        "unrealized_pnl":  320_000,
+        "realized_pnl":    150_000,
+        "best_stock":  {"name": "삼성전자", "return": 18.2},
+        "worst_stock": {"name": "NAVER",   "return": -3.1},
+        # 기간별 수익률
+        "return_1m": 2.1,
+        "return_3m": 5.4,
+        "return_6m": 9.8,
+        # 섹터/종목 집중도
+        "sector_concentration": [
+            {"sector": "반도체", "weight": 42},
+            {"sector": "IT",    "weight": 28},
+            {"sector": "금융",  "weight": 20},
+            {"sector": "기타",  "weight": 10},
+        ],
+        "stock_concentration": [
+            {"stock": "삼성전자",  "weight": 35},
+            {"stock": "SK하이닉스","weight": 22},
+            {"stock": "NAVER",    "weight": 15},
+            {"stock": "기타",     "weight": 28},
+        ],
+        "domestic_ratio": 80,
+        "foreign_ratio":  20,
+        # 리스크
+        "mdd":               -8.3,
+        "recovery_needed":    9.1,
+        "volatility":         2.1,
+        "kospi_volatility":   1.2,
+        # 거래 통계
+        "total_trades": 20,
+        "win_count":    12,
+        "loss_count":    8,
+        "avg_win":    25_000,
+        "avg_loss":   10_000,
+        "profit_factor": 2.5,
+        # 오늘 실시간
+        "yesterday_total": 5_200_000,
+        "current_total":   5_350_000,
+        "daily_return":    2.88,
+    }
