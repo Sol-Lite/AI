@@ -19,11 +19,19 @@ import time
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
-# App/utils/text.py, StockNews_crawled/summarizer.py import
-_app_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "App")
-_stock_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "StockNews_crawled")
+# config, App/utils/text.py, StockNews_crawled/summarizer.py import
+_here = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _here)
+_app_path = os.path.join(_here, "..", "App")
+_stock_path = os.path.join(_here, "..", "StockNews_crawled")
 sys.path.insert(0, _app_path)
 sys.path.insert(0, _stock_path)
+from config import (
+    MONGO_URI, DB_NAME, COLLECTION_NAME,
+    HEADERS, MAIN_NEWS_URL, ARTICLE_URL_TPL,
+    MEDIA_KEYWORDS, TARGET_COUNT, SCHEDULE_INTERVAL,
+    SIMHASH_BITS, TITLE_HAMMING_THRESHOLD, CONTENT_JACCARD_THRESHOLD,
+)
 from utils.text import clean_article_body
 from summarizer import summarize_articles
 
@@ -32,30 +40,6 @@ import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 
-# ── Config ────────────────────────────────────────────────────
-MONGO_URI = "mongodb+srv://ADMIN:(Sollite4259)@sqllitecluster.fdieckp.mongodb.net/?appName=SQLLiteCluster"
-DB_NAME = "sollite"
-COLLECTION_NAME = "news"
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
-
-MAIN_NEWS_URL = "https://finance.naver.com/news/mainnews.naver"
-ARTICLE_URL_TPL = "https://n.news.naver.com/mnews/article/{office_id}/{article_id}"
-
-TARGET_COUNT = 20
-SCHEDULE_INTERVAL = 1800  # 30분(초)
-MEDIA_KEYWORDS = ["[포토]", "[사진]", "[동영상]", "[비디오]", "[포토뉴스]", "[영상]"]
-
-# 중복 판정 임계값
-SIMHASH_BITS = 64
-TITLE_HAMMING_THRESHOLD = 5    # 이하면 유사 제목
-CONTENT_JACCARD_THRESHOLD = 0.7
 
 # ── MongoDB 연결 ──────────────────────────────────────────────
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
