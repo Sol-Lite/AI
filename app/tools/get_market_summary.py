@@ -2,7 +2,19 @@
 도구 1: get_market_summary - 시황 요약
 TODO: kobart 연동 시 _fetch_news_and_summarize() 내부를 실제 구현으로 교체
 """
-from datetime import date as date_type
+from datetime import date as date_type, datetime, time, timedelta
+from app.db.mongo import get_news_collection
+
+_NEWS_LIMIT = 5
+_NEWS_PROJECTION = {"title": 1, "summary": 1, "_id": 0}
+
+
+def _published_at_day_filter(date_str: str) -> dict:
+    """DB는 `date` 문자열이 아니라 `published_at`(naive datetime)으로 저장됨."""
+    d = date_type.fromisoformat(date_str)
+    start = datetime.combine(d, time.min)
+    end = datetime.combine(d + timedelta(days=1), time.min)
+    return {"published_at": {"$gte": start, "$lt": end}}
 
 
 def get_market_summary(date: str | None = None) -> dict:
@@ -15,27 +27,39 @@ def get_market_summary(date: str | None = None) -> dict:
     Returns:
         {
             "date": "2026-03-17",
-            "summary": "...",
+            "title": ["...", ...],
+            "summary": ["...", ...],
+            "count": 5,
             "source": "..."
         }
     """
     if date is None:
         date = str(date_type.today())
+    col = get_news_collection()
 
-    # TODO: 실제 뉴스 수집 후 EbanLee/kobart-summary-v3 모델로 요약
-    summary_text = _fetch_news_and_summarize(date)
+    docs = list(
+        col.find(_published_at_day_filter(date), _NEWS_PROJECTION)
+        .sort("published_at", -1)
+        .limit(_NEWS_LIMIT)
+    )
+
+    titles: list[str] = []
+    summaries: list[str] = []
+    print(titles)
+    print(summaries)
+    for doc in docs:
+        titles.append((doc.get("title") or "").strip())
+        summaries.append((doc.get("summary") or "").strip())
 
     return {
         "date": date,
-        "summary": summary_text,
-        "source": "mock",
+        "title": titles,
+        "summary": summaries,
+        "count": len(docs),
+        "source": "db-test",
     }
 
 
-def _fetch_news_and_summarize(date: str) -> str:
-    # TODO: 뉴스 크롤링 → kobart 모델 요약으로 교체
-    return (
-        f"{date} 기준 시황: 코스피는 전일 대비 0.5% 상승한 2,650포인트를 기록했습니다. "
-        "미국 연준의 금리 동결 기조 유지 발표에 따라 외국인 순매수가 이어지며 반도체 업종이 강세를 보였습니다. "
-        "삼성전자가 2% 이상 오르며 지수 상승을 이끌었고, 코스닥도 동반 상승했습니다."
-    )
+if __name__ == "__main__":
+    result = get_market_summary("2026-03-19")
+    print(result)

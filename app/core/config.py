@@ -1,5 +1,7 @@
 import os
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+
 
 load_dotenv()
 
@@ -25,3 +27,13 @@ MONGO_DB  = os.getenv("MONGO_DB", "mockstock")
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_DB   = int(os.getenv("REDIS_DB", "0"))
+
+class Settings(BaseSettings):
+    MONGO_URI: str
+    MONGO_DB: str
+
+    class Config:
+        env_file = ".env"
+
+
+settings = Settings()

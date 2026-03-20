@@ -40,7 +40,7 @@ MidProject/
 
 #### get_market_summary
 - 입력: `date` (생략 시 오늘)
-- 출력: `{ date, summary, source }`
+- 출력: `{ date, title[], summary[], count, source }`
 - TODO: `_fetch_news_and_summarize()` → 뉴스 크롤링 + EbanLee/kobart-summary-v3
 
 #### get_db_data
