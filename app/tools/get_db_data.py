@@ -74,18 +74,62 @@ def _query_balance(conn, account_id: str) -> dict:
 # ── trades ───────────────────────────────────────────────────────────────────
 # 거래내역
 def _query_trades(account_id: str, limit: int) -> dict:
-    # TODO: Oracle SELECT FROM trades WHERE account_id = :account_id ORDER BY executed_at DESC FETCH FIRST :limit ROWS ONLY 로 교체
-    recent_all = [
-        {"stock_name": "삼성전자", "side": "buy",  "price": 75_000, "quantity": 10, "executed_at": "2026-03-15"},
-        {"stock_name": "NAVER",   "side": "sell", "price": 210_000, "quantity": 5, "executed_at": "2026-03-14"},
-        {"stock_name": "SK하이닉스","side": "buy", "price": 195_000, "quantity": 3, "executed_at": "2026-03-12"},
-        {"stock_name": "카카오",   "side": "sell", "price": 52_000,  "quantity": 8, "executed_at": "2026-03-10"},
+    from app.db.oracle import fetch_one, fetch_all
+
+    cnt_sql = """
+        SELECT
+            COUNT(DISTINCT ex.ORDER_ID)                                             AS total,
+            COUNT(DISTINCT CASE WHEN ex.ORDER_SIDE = 'buy'  THEN ex.ORDER_ID END)  AS buy_count,
+            COUNT(DISTINCT CASE WHEN ex.ORDER_SIDE = 'sell' THEN ex.ORDER_ID END)  AS sell_count
+        FROM executions ex
+        WHERE ex.account_id = :account_id
+    """
+    cnt_row = fetch_one(cnt_sql, {"account_id": account_id}) or (0, 0, 0)
+    total, buy_count, sell_count = cnt_row
+
+    recent_sql = """
+        WITH last_buy AS (
+            SELECT i.STOCK_NAME, ex.ORDER_SIDE, ex.PRICE, ex.QUANTITY, ex.EXECUTED_AT
+            FROM executions ex
+                LEFT JOIN orders o      ON ex.ORDER_ID  = o.ORDER_ID
+                LEFT JOIN instruments i ON o.STOCK_CODE = i.STOCK_CODE
+            WHERE ex.account_id = :account_id
+              AND ex.ORDER_SIDE  = 'buy'
+            ORDER BY ex.EXECUTED_AT DESC
+            FETCH FIRST :limit ROWS ONLY
+        ),
+        last_sell AS (
+            SELECT i.STOCK_NAME, ex.ORDER_SIDE, ex.PRICE, ex.QUANTITY, ex.EXECUTED_AT
+            FROM executions ex
+                LEFT JOIN orders o      ON ex.ORDER_ID  = o.ORDER_ID
+                LEFT JOIN instruments i ON o.STOCK_CODE = i.STOCK_CODE
+            WHERE ex.account_id = :account_id
+              AND ex.ORDER_SIDE  = 'sell'
+            ORDER BY ex.EXECUTED_AT DESC
+            FETCH FIRST :limit ROWS ONLY
+        )
+        SELECT STOCK_NAME, ORDER_SIDE, PRICE, QUANTITY, EXECUTED_AT FROM last_buy
+        UNION ALL
+        SELECT STOCK_NAME, ORDER_SIDE, PRICE, QUANTITY, EXECUTED_AT FROM last_sell
+        ORDER BY EXECUTED_AT DESC
+    """
+    rows = fetch_all(recent_sql, {"account_id": account_id, "limit": limit})
+    recent = [
+        {
+            "stock_name":  row[0],
+            "side":        row[1],
+            "price":       row[2],
+            "quantity":    row[3],
+            "executed_at": str(row[4]),
+        }
+        for row in rows
     ]
+
     return {
-        "total":      20,
-        "buy_count":  12,
-        "sell_count": 8,
-        "recent":     recent_all[:limit],
+        "total":      total,
+        "buy_count":  buy_count,
+        "sell_count": sell_count,
+        "recent":     recent,
     }
 
 

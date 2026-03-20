@@ -1,46 +1,35 @@
 import oracledb
-from app.core.config import settings
+from app.core.config import ORACLE_DSN, ORACLE_USER, ORACLE_PASSWORD
+
 
 def get_oracle_connection():
-    """
-    Oracle DB 연결 반환
-    TODO: 실제 서버 연결 정보로 교체
-    """
-    # TODO: 실제 구현
-    # conn = oracledb.connect(
-    #     user=settings.ORACLE_USER,
-    #     password=settings.ORACLE_PASSWORD,
-    #     dsn=f"{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/{settings.ORACLE_SID}"
-    # )
-    # return conn
-    return None  # 현재는 None 반환
+    """Oracle DB 연결 반환"""
+    return oracledb.connect(
+        user=ORACLE_USER,
+        password=ORACLE_PASSWORD,
+        dsn=ORACLE_DSN,
+    )
 
 
 def fetch_one(query: str, params: dict = None):
     """단건 조회"""
-    # TODO: 실제 구현
-    # conn = get_oracle_connection()
-    # cursor = conn.cursor()
-    # cursor.execute(query, params or {})
-    # return cursor.fetchone()
-    return None
+    with get_oracle_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, params or {})
+            return cursor.fetchone()
 
 
 def fetch_all(query: str, params: dict = None):
     """다건 조회"""
-    # TODO: 실제 구현
-    # conn = get_oracle_connection()
-    # cursor = conn.cursor()
-    # cursor.execute(query, params or {})
-    # return cursor.fetchall()
-    return []
+    with get_oracle_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, params or {})
+            return cursor.fetchall()
 
 
 def execute(query: str, params: dict = None):
     """INSERT/UPDATE/DELETE"""
-    # TODO: 실제 구현
-    # conn = get_oracle_connection()
-    # cursor = conn.cursor()
-    # cursor.execute(query, params or {})
-    # conn.commit()
-    pass
+    with get_oracle_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(query, params or {})
+        conn.commit()

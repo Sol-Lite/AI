@@ -15,9 +15,9 @@ load_dotenv()
 # LS_APP_SECRET    = os.getenv("LS_APP_SECRET", "")
 
 # Oracle
-# ORACLE_DSN      = os.getenv("ORACLE_DSN", "localhost:1521/XEPDB1")
-# ORACLE_USER     = os.getenv("ORACLE_USER", "mockstock")
-# ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "")
+ORACLE_DSN      = os.getenv("ORACLE_DSN", "localhost:1521/XEPDB1")
+ORACLE_USER     = os.getenv("ORACLE_USER", "mockstock")
+ORACLE_PASSWORD = os.getenv("ORACLE_PASSWORD", "")
 
 # MongoDB
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
