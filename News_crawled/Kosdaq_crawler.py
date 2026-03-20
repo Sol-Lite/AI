@@ -1,0 +1,345 @@
+"""
+news2day.co.kr 마감시황 크롤러
+API: https://www.news2day.co.kr/rest/search?searchText=마감시황&searchType=all&from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&sort=latest
+- 매일 16:30 실행
+- 오늘 날짜 기사만 수집
+- <figure id="id_div_main"> / figcaption 내용 제외
+- 텍스트 전처리 (특수문자 등)
+- ollama llama3.1:8b 요약
+- MongoDB sollite.news 저장 (기존 데이터 전체 삭제 후 삽입)
+"""
+
+import re
+import time
+import html as html_module
+from json_repair import repair_json
+
+import certifi
+import requests
+import schedule
+from bs4 import BeautifulSoup
+from datetime import datetime, timezone, timedelta
+from pymongo import MongoClient
+from config import MONGO_URI, DB_NAME, COLLECTION_NAME, OLLAMA_URL, OLLAMA_MODEL
+
+# ── news2day REST API 설정 ────────────────────────────────────
+SEARCH_API_URL = "https://www.news2day.co.kr/rest/search"
+ARTICLE_BASE_URL = "https://www.news2day.co.kr"
+CDN_BASE = "https://cdn.news2day.co.kr/data2"
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+    "Accept-Language": "ko-KR,ko;q=0.9",
+    "Referer": "https://www.news2day.co.kr/search?searchText=%EB%A7%88%EA%B0%90%EC%8B%9C%ED%99%A9",
+}
+
+# KST = UTC+9
+KST = timezone(timedelta(hours=9))
+
+
+# ── MongoDB 연결 ──────────────────────────────────────────────
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+db = client[DB_NAME]
+collection = db[COLLECTION_NAME]
+
+
+# ═══════════════════════════════════════════════════════════════
+# 요약 말투 후처리 (-다 → -습니다)
+# ═══════════════════════════════════════════════════════════════
+def _to_hamnida(text: str) -> str:
+    """문장 끝 '-다' 체를 '-습니다' 체로 변환"""
+    pairs = [
+        (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
+        (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
+        (r'겠다\.', '겠습니다.'), (r'였다\.', '였습니다.'),
+        (r'왔다\.', '왔습니다.'), (r'갔다\.', '갔습니다.'),
+        (r'났다\.', '났습니다.'), (r'랐다\.', '랐습니다.'),
+        (r'쳤다\.', '쳤습니다.'), (r'볐다\.', '볐습니다.'),
+        (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
+        (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
+        (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
+        # 마침표 없이 문자열 끝나는 경우
+        (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
+        (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
+        (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
+        (r'한다$', '합니다.'),    (r'된다$', '됩니다.'),
+    ]
+    for pattern, replacement in pairs:
+        text = re.sub(pattern, replacement, text)
+    return text
+
+
+def apply_hamnida(summary: dict) -> dict:
+    """summary dict의 텍스트 필드에 말투 후처리 적용"""
+    if not summary:
+        return summary
+    if isinstance(summary.get("market_event"), list):
+        summary["market_event"] = [_to_hamnida(s) for s in summary["market_event"]]
+    if isinstance(summary.get("one_line_summary"), str):
+        summary["one_line_summary"] = _to_hamnida(summary["one_line_summary"])
+    if isinstance(summary.get("market_sentiment"), str):
+        summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
+    return summary
+
+
+# ═══════════════════════════════════════════════════════════════
+# 텍스트 전처리
+# ═══════════════════════════════════════════════════════════════
+def clean_text(text: str) -> str:
+    # HTML 엔티티 디코딩 (&amp; &nbsp; 등)
+    text = html_module.unescape(text)
+    # URL 제거
+    text = re.sub(r'https?://\S+', '', text)
+    # 이메일 제거
+    text = re.sub(r'[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
+    # 기자 바이라인 제거 (예: [뉴스투데이=홍길동 기자])
+    text = re.sub(r'\[[^\]]{1,50}기자\]\s*', '', text)
+    text = re.sub(r'\([^\)]{1,50}기자\)\s*', '', text)
+    text = re.sub(r'[가-힣]{2,6}\s*기자\s*[=:]\s*', '', text)
+    # 저작권 표기 제거
+    text = re.sub(r'ⓒ[^\n.。]{0,60}', '', text)
+    text = re.sub(r'©[^\n.。]{0,60}', '', text)
+    text = re.sub(r'무단\s*전재[^\n.。]{0,60}', '', text)
+    # 장식용 특수문자 제거
+    text = re.sub(r'[■◆★☆◇○□◎▶▷◀◁△▽▲▼●◉]+\s*', '', text)
+    # 연속 공백/줄바꿈 정리
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
+def parse_html_content(raw_html: str) -> str:
+    """API가 반환하는 HTML content 필드에서 본문 텍스트만 추출"""
+    soup = BeautifulSoup(raw_html, "html.parser")
+
+    # <figure id="id_div_main"> 및 모든 figure/figcaption 제거
+    for tag in soup.select("figure#id_div_main, figure.class_div_main, figure, figcaption"):
+        tag.decompose()
+
+    # 광고·스크립트·스타일 제거
+    for tag in soup.select("script, style, iframe, ins"):
+        tag.decompose()
+
+    raw = soup.get_text(" ", strip=True)
+    return clean_text(raw)
+
+
+# ═══════════════════════════════════════════════════════════════
+# REST API로 오늘 기사 목록 수집
+# ═══════════════════════════════════════════════════════════════
+def fetch_today_articles() -> list:
+    today_kst = datetime.now(KST).strftime("%Y-%m-%d")
+    articles = []
+    page = 1
+
+    while True:
+        params = {
+            "searchText": "마감시황",
+            "searchType": "all",
+            "from": today_kst,
+            "to": today_kst,
+            "page": page,
+            "sort": "latest",
+        }
+        try:
+            r = requests.get(SEARCH_API_URL, params=params, headers=HEADERS, timeout=15)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as e:
+            print(f"  API 요청 실패 (page={page}): {e}")
+            break
+
+        items = data.get("list", [])
+        total_pages = data.get("pages", {}).get("totalPages", 0)
+        total_count = data.get("pages", {}).get("totalElements", 0)
+
+        if page == 1:
+            print(f"  검색 결과: 총 {total_count}건 ({total_pages}페이지)")
+
+        if not items:
+            break
+
+        for item in items:
+            article_id = item.get("id", "")
+            title = item.get("title", "").strip()
+            raw_html = item.get("content", "")
+            link = item.get("link", "")
+            release_date_str = item.get("releaseDate") or item.get("firstReleaseDate", "")
+
+            # 날짜 파싱 (UTC → KST 변환)
+            published_at = datetime.now(KST).replace(tzinfo=None)
+            if release_date_str:
+                try:
+                    # "2026-03-19T07:17:39.043+0000" 형식
+                    dt_utc = datetime.strptime(release_date_str[:19], "%Y-%m-%dT%H:%M:%S")
+                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                    published_at = dt_utc.astimezone(KST).replace(tzinfo=None)
+                except ValueError:
+                    pass
+
+            # 본문 파싱
+            if not raw_html:
+                continue
+            content = parse_html_content(raw_html)
+            if len(content) < 50:
+                continue
+
+            articles.append({
+                "news_id": article_id,
+                "title": title,
+                "content": content,
+                "source": "news2day",
+                "stock_index": "KOSDAQ",
+                "source_url": ARTICLE_BASE_URL + link if link else "",
+                "published_at": published_at,
+            })
+
+        if page >= total_pages:
+            break
+        page += 1
+        time.sleep(0.3)
+
+    return articles
+
+
+# ═══════════════════════════════════════════════════════════════
+# ollama llama3.1:8b 요약
+# ═══════════════════════════════════════════════════════════════
+def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
+    if len(content) < 50:
+        return {}
+    content = content[:4000]
+
+    date_str = (published_at or datetime.now()).strftime("%Y년 %m월 %d일")
+    prompt = f"""아래 [기사 내용]을 읽고 분석하여 JSON을 출력하세요.
+주의사항:
+- [출력 예시]는 형식만 보여주는 가짜 데이터입니다. 예시의 수치, 종목, 업종, 문장을 절대 그대로 사용하지 마세요.
+- 반드시 [기사 내용]에 실제로 등장하는 수치, 종목명, 업종명만 사용하세요.
+- market_event와 one_line_summary의 모든 문장은 반드시 '~했습니다.', '~됩니다.', '~입니다.' 형태로 끝내세요. '~했다.', '~됐다.', '~이다.' 형태는 절대 사용하지 마세요.
+- 설명이나 마크다운 없이 JSON만 출력하세요.
+
+[JSON 스키마]
+{{
+  "date": "날짜 문자열",
+  "market_event": ["이벤트1", "이벤트2", ...],
+  "sectors": {{
+    "kospi": ["상승 업종1(등락률)", ...],
+    "kosdaq": ["상승 업종1(등락률)", ...]
+  }},
+  "stocks": {{
+    "kospi": {{"up": ["종목(등락률)", ...], "down": ["종목(등락률)", ...]}},
+    "kosdaq": {{"up": ["종목(등락률)", ...], "down": ["종목(등락률)", ...]}}
+  }},
+  "one_line_summary": "한줄 요약"
+}}
+
+[출력 예시]
+{{
+  "date": "2026년 3월 20일",
+  "market_event": [
+    "코스피 지수는 전 거래일 대비 50.13포인트(0.87%) 상승한 5813.35로 마감했습니다.",
+    "국제 유가 하락과 원/달러 환율 하락(1492원, 전일 대비 9원 하락)이 상승을 뒷받침했습니다.",
+    "이란 전쟁 조기 종전 가능성에 대한 기대감이 지정학적 긴장 완화로 이어졌습니다."
+  ],
+  "sectors": {{
+    "kospi": ["건설업(+3%대)", "화학·유통업(+2%대)", "전기·가스업·증권업(+1%대)"],
+    "kosdaq": ["건설업(+4%대)", "금속·운송창고업(+1%대)"]
+  }},
+  "stocks": {{
+    "kospi": {{
+      "up": ["삼성전자(+0.12%)", "SK하이닉스(+0.39%)", "LG에너지솔루션(+1.48%)"],
+      "down": ["한화에어로스페이스(-2.76%)"]
+    }},
+    "kosdaq": {{
+      "up": ["에코프로(+0.99%)", "펩트론(+3.31%)", "에이비엘바이오(+1.68%)"],
+      "down": ["리노공업(-4.10%)", "알테오젠(-0.83%)"]
+    }}
+  }},
+  "one_line_summary": "국제유가 하락과 환율 안정, 지정학적 리스크 완화 기대감으로 코스피·코스닥 모두 상승했으며, 건설 및 화학 업종이 주도적인 상승을 기록했습니다."
+}}
+
+[기사 내용]
+{content}
+
+위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
+
+    try:
+        r = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "format": "json",
+                "stream": False,
+                "options": {"num_predict": 2048},
+            },
+            timeout=180,
+        )
+        r.raise_for_status()
+        import json
+        raw = r.json().get("response", "{}")
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            result = json.loads(repair_json(raw))
+        return apply_hamnida(result)
+    except Exception as e:
+        print(f"  ollama 요약 실패: {e}")
+        return {}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 1회 크롤링 사이클
+# ═══════════════════════════════════════════════════════════════
+def run_job() -> None:
+    print(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] 크롤링 시작 — news2day 마감시황")
+
+    # 1. 오늘 기사 목록 수집 (API)
+    articles = fetch_today_articles()
+    print(f"  유효 기사: {len(articles)}건")
+
+    if not articles:
+        print("  저장할 기사 없음 — 종료")
+        return
+
+    # 2. ollama 요약
+    docs = []
+    for i, article in enumerate(articles, 1):
+        print(f"  [{i}/{len(articles)}] 요약 중: {article['title'][:45]}")
+        summary = summarize_with_ollama(article["content"], article.get("published_at"))
+        docs.append({
+            **article,
+            "summary": summary,
+            "fetched_at": datetime.now(),
+        })
+
+    # 3. 기존 데이터 전체 삭제 후 삽입 (sollite.news 전체)
+    del_result = collection.delete_many({})
+    print(f"  기존 데이터 삭제: {del_result.deleted_count}건")
+
+    result = collection.insert_many(docs)
+    print(f"  MongoDB 저장 완료: {len(result.inserted_ids)}건")
+
+
+# ═══════════════════════════════════════════════════════════════
+# 메인 — 매일 16:30 스케줄
+# ═══════════════════════════════════════════════════════════════
+if __name__ == "__main__":
+    print("=" * 55)
+    print(" news2day 마감시황 크롤러")
+    print(f" API  : {SEARCH_API_URL}")
+    print(f" DB   : {DB_NAME}.{COLLECTION_NAME}")
+    print(f" 모델 : {OLLAMA_MODEL}")
+    print(" 실행 : 매일 16:30 (KST)")
+    print("=" * 55)
+
+    schedule.every().day.at("16:30").do(run_job)
+
+    print("스케줄러 대기 중 (매일 16:30에 크롤링 실행)...")
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
