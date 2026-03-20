@@ -13,12 +13,18 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_market_summary",
-            "description": "지정 날짜의 주식 시황 요약을 반환합니다.",
+            "description": "한국/미국 시황 요약 또는 특정 종목의 뉴스 요약을 반환합니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "date": {"type": "string", "description": "YYYY-MM-DD 형식 날짜. 생략 시 오늘."},
+                    "type": {
+                        "type": "string",
+                        "enum": ["korea", "us", "stock_news"],
+                        "description": "korea: 한국 시황(KOSDAQ), us: 미국 시황(NASDAQ), stock_news: 종목별 뉴스",
+                    },
+                    "stock_code": {"type": "string", "description": "종목 코드 (stock_news 시 필요, 예: 005930)"},
                 },
+                "required": ["type"],
             },
         },
     },

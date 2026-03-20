@@ -1,6 +1,6 @@
 """
 도구 3: get_market_data - 실시간 시장 데이터 (시세/차트/랭킹/지수/환율)
-TODO: LS증권 API + Redis 캐시 연동 시 _fetch_*() 내부를 실제 호출로 교체
+TODO: LS증권 API 연동 시 _fetch_*() 내부를 실제 호출로 교체
 """
 from typing import Literal
 

@@ -1,6 +1,6 @@
 """
 도구 2: get_db_data - 내부 DB 조회 (잔고 / 거래내역 / 포트폴리오 분석)
-TODO: Oracle + Redis 연동 시 _query_*() 함수 내부를 실제 쿼리로 교체
+TODO: Oracle 연동 시 _query_*() 함수 내부를 실제 쿼리로 교체
 """
 from typing import Literal
 
@@ -34,20 +34,45 @@ def get_db_data(
 
 
 # ── balance ──────────────────────────────────────────────────────────────────
+# 잔고
+def _query_balance(conn, account_id: str) -> dict:
+    sql = """
+        SELECT
+            cb.currency_code,
+            cb.available_amount,
+            cb.total_amount
+        FROM cash_balances cb
+        WHERE cb.account_id = :account_id
+    """
 
-def _query_balance(account_id: str) -> dict:
-    # TODO: Oracle SELECT FROM accounts WHERE account_id = :account_id + Redis 캐시로 교체
-    return {
-        "krw_available": 1_500_000,
-        "krw_total":     2_000_000,
-        "usd_available": 500.0,
-        "usd_total":     800.0,
-        "total_eval":    5_500_000,
+    cursor = conn.cursor()
+    cursor.execute(sql, {"account_id": account_id})
+
+    rows = cursor.fetchall()
+
+    # 기본값 세팅
+    result = {
+        "krw_available": 0,
+        "krw_total": 0,
+        "usd_available": 0,
+        "usd_total": 0,
+        "total_eval": 0,
     }
+    for currency_code, available, total in rows:
+        if currency_code == "KRW":
+            result["krw_available"] = available
+            result["krw_total"] = total
+        elif currency_code == "USD":
+            result["usd_available"] = available
+            result["usd_total"] = total
 
+        # 총합 누적
+        result["total_eval"] += total or 0
+
+    return result
 
 # ── trades ───────────────────────────────────────────────────────────────────
-
+# 거래내역
 def _query_trades(account_id: str, limit: int) -> dict:
     # TODO: Oracle SELECT FROM trades WHERE account_id = :account_id ORDER BY executed_at DESC FETCH FIRST :limit ROWS ONLY 로 교체
     recent_all = [
@@ -65,7 +90,7 @@ def _query_trades(account_id: str, limit: int) -> dict:
 
 
 # ── portfolio ─────────────────────────────────────────────────────────────────
-
+# 포트폴리오
 def _query_portfolio(account_id: str) -> dict:
     # TODO: portfolio_snapshots WHERE account_id = :account_id + Redis 실시간 시세로 교체
     return {

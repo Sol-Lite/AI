@@ -1,65 +1,72 @@
 """
-도구 1: get_market_summary - 시황 요약
-TODO: kobart 연동 시 _fetch_news_and_summarize() 내부를 실제 구현으로 교체
+도구 1: get_market_summary - 시황 요약 및 종목별 뉴스 요약
 """
-from datetime import date as date_type, datetime, time, timedelta
-from app.db.mongo import get_news_collection
-
-_NEWS_LIMIT = 5
-_NEWS_PROJECTION = {"title": 1, "summary": 1, "_id": 0}
+from typing import Literal
+from app.db.mongo import get_sollite_news_collection
 
 
-def _published_at_day_filter(date_str: str) -> dict:
-    """DB는 `date` 문자열이 아니라 `published_at`(naive datetime)으로 저장됨."""
-    d = date_type.fromisoformat(date_str)
-    start = datetime.combine(d, time.min)
-    end = datetime.combine(d + timedelta(days=1), time.min)
-    return {"published_at": {"$gte": start, "$lt": end}}
-
-
-def get_market_summary(date: str | None = None) -> dict:
+def get_market_summary(
+    type: Literal["korea", "us", "stock_news"],
+    stock_code: str | None = None,
+) -> dict:
     """
-    주어진 날짜의 시황 요약을 반환합니다.
+    시황 요약 및 종목별 뉴스 요약을 반환합니다.
 
     Args:
-        date: 조회 날짜 (YYYY-MM-DD). 생략 시 오늘 날짜.
-
-    Returns:
-        {
-            "date": "2026-03-17",
-            "title": ["...", ...],
-            "summary": ["...", ...],
-            "count": 5,
-            "source": "..."
-        }
+        type: "korea" | "us" | "stock_news"
+        stock_code: 종목 코드 (stock_news 시 필요, 예: "005930")
     """
-    if date is None:
-        date = str(date_type.today())
-    col = get_news_collection()
+    if type == "korea":
+        return _fetch_korea_summary()
+    elif type == "us":
+        return _fetch_us_summary()
+    elif type == "stock_news":
+        return _fetch_stock_news_summary(stock_code)
+    else:
+        raise ValueError(f"Unknown type: {type}")
 
-    docs = list(
-        col.find(_published_at_day_filter(date), _NEWS_PROJECTION)
-        .sort("published_at", -1)
-        .limit(_NEWS_LIMIT)
+
+# ── korea ─────────────────────────────────────────────────────────────────────
+
+def _fetch_korea_summary() -> dict:
+    col = get_sollite_news_collection()
+    doc = col.find_one(
+        {"stock_index": "KOSDAQ"},
+        {"summary": 1, "_id": 0},
+        sort=[("published_at", -1)],
     )
+    return {"stock_index": "KOSDAQ", "summary": doc.get("summary") if doc else None}
 
-    titles: list[str] = []
-    summaries: list[str] = []
-    print(titles)
-    print(summaries)
-    for doc in docs:
-        titles.append((doc.get("title") or "").strip())
-        summaries.append((doc.get("summary") or "").strip())
 
-    return {
-        "date": date,
-        "title": titles,
-        "summary": summaries,
-        "count": len(docs),
-        "source": "db-test",
-    }
+# ── us ────────────────────────────────────────────────────────────────────────
+
+def _fetch_us_summary() -> dict:
+    col = get_sollite_news_collection()
+    doc = col.find_one(
+        {"stock_index": "NASDAQ"},
+        {"summary": 1, "_id": 0},
+        sort=[("published_at", -1)],
+    )
+    return {"stock_index": "NASDAQ", "summary": doc.get("summary") if doc else None}
+
+
+# ── stock_news ────────────────────────────────────────────────────────────────
+
+def _fetch_stock_news_summary(stock_code: str | None) -> dict:
+    col = get_sollite_news_collection()
+    docs = list(
+        col.find(
+            {"stock_code": stock_code},
+            {"title": 1, "summary": 1, "_id": 0},
+        )
+        .sort("published_at", -1)
+        .limit(3)
+    )
+    news = [{"title": doc.get("title"), "summary": doc.get("summary")} for doc in docs]
+    return {"stock_code": stock_code, "news": news}
 
 
 if __name__ == "__main__":
-    result = get_market_summary("2026-03-19")
-    print(result)
+    print(get_market_summary("korea"))
+    print(get_market_summary("us"))
+    print(get_market_summary("stock_news", stock_code="005930"))
