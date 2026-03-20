@@ -1,6 +1,6 @@
 """
 네이버 금융 메인뉴스 크롤러
-URL: https://finance.naver.com/news/mainnews.naver
+URL: https://finance.naver.com/news/news_list.naver?mode=LSS3D&section_id=101&section_id2=258&section_id3=401
 - 30분 주기, 20건/사이클
 - 텍스트 전처리: StockNews_crawled/naver_stock_news_scraper.py 방식
 - 중복 제거:
@@ -21,18 +21,15 @@ from urllib.parse import parse_qs, urlparse
 
 # config, App/utils/text.py, StockNews_crawled/summarizer.py import
 _here = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _here)
-_app_path = os.path.join(_here, "..", "App")
 _stock_path = os.path.join(_here, "..", "StockNews_crawled")
-sys.path.insert(0, _app_path)
 sys.path.insert(0, _stock_path)
+sys.path.insert(0, _here)  # AllNews_crawled config가 최우선
 from config import (
     MONGO_URI, DB_NAME, COLLECTION_NAME,
-    HEADERS, MAIN_NEWS_URL, ARTICLE_URL_TPL,
+    HEADERS, MAIN_NEWS_URL, MAIN_NEWS_PARAMS, ARTICLE_URL_TPL,
     MEDIA_KEYWORDS, TARGET_COUNT, SCHEDULE_INTERVAL,
     SIMHASH_BITS, TITLE_HAMMING_THRESHOLD, CONTENT_JACCARD_THRESHOLD,
 )
-from utils.text import clean_article_body
 from summarizer import summarize_articles
 
 import certifi
@@ -67,13 +64,15 @@ def _remove_article_noise(content_tag) -> None:
     for selector in [
         "strong.media_end_summary",   # 소제목 블록 → content에서 제거
         "b",                          # 인라인 소제목 태그 → subtitle로 이미 추출 후 제거
-        "span.end_photo_org",
-        "em.img_desc",
+        ".end_photo_org",             # 사진 컨테이너 (span/div 모두)
+        ".img_desc",                  # 사진 캡션 (em.img_desc 및 기타 태그)
         "figcaption",
+        ".nbd_im_w",                  # 네이버 이미지 래퍼
+        "video",                      # 동영상 엘리먼트
         ".vod_area",
         "div.pharm",                  # 프리미엄 선공개 안내
         "span._PHOTO_VIEWER",
-        "table",                      # 사진/표 테이블
+        "table",                      # 사진/표 테이블 (캡션 포함)
         ".reporter_area",
         ".copyright",
     ]:
@@ -99,6 +98,34 @@ def _remove_caption_credits(text: str) -> str:
     text = re.sub(_pat, ' ', text)
     # 캡션 텍스트 [언론사=기자명 기자] / [언론사 | 기자명 기자] — 앞 짧은 텍스트 포함 제거
     text = re.sub(r'[가-힣\w·,·\s]{2,60}\[[^\]]{2,40}기자\]\s*', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _clean_body(text: str) -> str:
+    """naver_stock_news_scraper.py › clean_body 동일 로직"""
+    text = re.sub(r'^\[[^\]]{1,40}기자\]\s*', '', text)
+    text = re.sub(r'^\[[가-힣a-zA-Z=\s]{2,20}\]\s*[가-힣\s]{2,15}기자\s*=\s*', '', text)
+    text = re.sub(r'^\([가-힣a-zA-Z0-9=\s]{2,20}\)\s*[가-힣\s]{2,15}기자\s*=\s*', '', text)
+    text = re.sub(r'^\[[가-힣a-zA-Z\s=|ㅣ]{2,20}\]\s*', '', text)
+    text = re.sub(r'재생\[[^\]]{1,20}\]', '', text)
+    text = re.sub(r'◀\s*(앵커|리포트)\s*▶\s*', '', text)
+    text = re.sub(r'<\s*(앵커|기자|리포트)\s*>', '', text)
+    text = re.sub(r'\[\s*(앵커|리포트|기자)\s*\]', '', text)
+    text = re.sub(r'━[^가-힣]*', '', text)
+    text = re.sub(r'\(사진[^)]{0,30}\)', '', text)
+    text = re.sub(r'\(제공[^)]{0,20}\)', '', text)
+    text = re.sub(r'\(표[^)]{0,20}\)', '', text)
+    text = re.sub(r'<사진>', '', text)
+    text = re.sub(r'\[[^\]]*기자[^\]]*@[^\]]*\]', '', text)
+    text = re.sub(r'[가-힣]{2,6}\s*기자\s+[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
+    text = re.sub(r'[a-zA-Z0-9_+-][a-zA-Z0-9._+-]*@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'▶.{0,30}(카카오톡|제보|홈페이지|이메일).{0,100}', '', text)
+    text = re.sub(r'[■◆★☆◇○□]+\s*', '', text)
+    text = re.sub(r'\[[^\]]{1,50}기자\]\s*', '', text)
+    text = re.sub(r'\[[^\]\|]{1,30}\|[^\]]{1,30}기자\]\s*', '', text)
+    text = re.sub(r'\s*사진\s*[|=]\s*[^\s][^.。\n]{0,30}', '', text)
+    text = re.sub(r'▲\s*.{0,200}', '', text)
     return re.sub(r'\s+', ' ', text).strip()
 
 
@@ -146,6 +173,8 @@ def _remove_inline_bylines(text: str) -> str:
     text = re.sub(r'\[[^\]\|]{1,30}\|[^\]]{1,30}기자\]\s*', '', text)
     # 사진 | 브랜드명 / 사진 = 브랜드명 캡션 크레딧
     text = re.sub(r'\s*사진\s*[|=]\s*[^\s][^.。\n]{0,30}', '', text)
+    # (표=흥국증권) / (사진=연합뉴스) / (이미지=삼성) 등 괄호 캡션
+    text = re.sub(r'\((?:표|사진|이미지|그래픽|자료|출처)\s*=\s*[^)]{1,40}\)', '', text)
     # ▲ 로 시작하는 프로모션 문구 (AI 프리즘 등)
     text = re.sub(r'▲\s*.{0,200}', '', text)
     # 이메일 주소 제거
@@ -197,13 +226,10 @@ def fetch_article(office_id: str, article_id: str) -> tuple:
             tag.decompose()
         _remove_article_noise(content)
 
-        # App/utils/text.py › clean_article_body 로 텍스트 클리닝
-        source = soup.select_one("meta[property='og:article:author']")
-        source_name = source["content"].strip() if source else ""
         raw = content.get_text(" ", strip=True)
         raw = _remove_caption_credits(raw)
         raw = strip_leading_bylines(raw)
-        body = clean_article_body(raw, source_name)
+        body = _clean_body(raw)
         body = _remove_inline_bylines(body)
 
         return body, subtitles, thumbnail_url
@@ -221,7 +247,7 @@ def fetch_news_list(page: int = 1) -> list:
     try:
         r = requests.get(
             MAIN_NEWS_URL,
-            params={"page": page},
+            params={**MAIN_NEWS_PARAMS, "page": page},
             headers=HEADERS,
             timeout=10,
         )
@@ -229,12 +255,12 @@ def fetch_news_list(page: int = 1) -> list:
         soup = BeautifulSoup(r.text, "html.parser")
 
         items = []
-        for li in soup.select("ul.newsList li"):
-            a_tag = li.select_one("dd.articleSubject a")
+        for subject_tag in soup.select(".articleSubject"):
+            a_tag = subject_tag.select_one("a")
             if not a_tag:
                 continue
 
-            title = html.unescape(a_tag.get_text(strip=True))
+            title = html.unescape(a_tag.get("title", "") or a_tag.get_text(strip=True))
             href = a_tag.get("href", "")
 
             if not title or not href:
@@ -245,15 +271,24 @@ def fetch_news_list(page: int = 1) -> list:
             # URL 파라미터에서 office_id, article_id 추출
             qs = parse_qs(urlparse(href).query)
             office_id = qs.get("office_id", [None])[0]
+            if not office_id:
+                office_id = qs.get("oid", [None])[0]
             article_id = qs.get("article_id", [None])[0]
+            if not article_id:
+                article_id = qs.get("aid", [None])[0]
+                
             if not office_id or not article_id:
                 continue
 
-            src_tag = li.select_one("span.press")
-            source = src_tag.get_text(strip=True) if src_tag else ""
+            source = ""
+            date_str = ""
+            summary_tag = subject_tag.find_next_sibling("dd", class_="articleSummary")
+            if summary_tag:
+                src_tag = summary_tag.select_one("span.press")
+                source = src_tag.get_text(strip=True) if src_tag else ""
 
-            date_tag = li.select_one("span.wdate")
-            date_str = date_tag.get_text(strip=True) if date_tag else ""
+                date_tag = summary_tag.select_one("span.wdate")
+                date_str = date_tag.get_text(strip=True) if date_tag else ""
 
             items.append({
                 "title": title,

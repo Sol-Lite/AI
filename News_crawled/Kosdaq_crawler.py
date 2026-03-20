@@ -46,47 +46,6 @@ KST = timezone(timedelta(hours=9))
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
-
-
-# ═══════════════════════════════════════════════════════════════
-# 요약 말투 후처리 (-다 → -습니다)
-# ═══════════════════════════════════════════════════════════════
-def _to_hamnida(text: str) -> str:
-    """문장 끝 '-다' 체를 '-습니다' 체로 변환"""
-    pairs = [
-        (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
-        (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
-        (r'겠다\.', '겠습니다.'), (r'였다\.', '였습니다.'),
-        (r'왔다\.', '왔습니다.'), (r'갔다\.', '갔습니다.'),
-        (r'났다\.', '났습니다.'), (r'랐다\.', '랐습니다.'),
-        (r'쳤다\.', '쳤습니다.'), (r'볐다\.', '볐습니다.'),
-        (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
-        (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
-        (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
-        # 마침표 없이 문자열 끝나는 경우
-        (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
-        (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
-        (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
-        (r'한다$', '합니다.'),    (r'된다$', '됩니다.'),
-    ]
-    for pattern, replacement in pairs:
-        text = re.sub(pattern, replacement, text)
-    return text
-
-
-def apply_hamnida(summary: dict) -> dict:
-    """summary dict의 텍스트 필드에 말투 후처리 적용"""
-    if not summary:
-        return summary
-    if isinstance(summary.get("market_event"), list):
-        summary["market_event"] = [_to_hamnida(s) for s in summary["market_event"]]
-    if isinstance(summary.get("one_line_summary"), str):
-        summary["one_line_summary"] = _to_hamnida(summary["one_line_summary"])
-    if isinstance(summary.get("market_sentiment"), str):
-        summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
-    return summary
-
-
 # ═══════════════════════════════════════════════════════════════
 # 텍스트 전처리
 # ═══════════════════════════════════════════════════════════════
@@ -127,6 +86,43 @@ def parse_html_content(raw_html: str) -> str:
     raw = soup.get_text(" ", strip=True)
     return clean_text(raw)
 
+# ═══════════════════════════════════════════════════════════════
+# 요약 말투 후처리 (-다 → -습니다)
+# ═══════════════════════════════════════════════════════════════
+def _to_hamnida(text: str) -> str:
+    """문장 끝 '-다' 체를 '-습니다' 체로 변환"""
+    pairs = [
+        (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
+        (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
+        (r'겠다\.', '겠습니다.'), (r'였다\.', '였습니다.'),
+        (r'왔다\.', '왔습니다.'), (r'갔다\.', '갔습니다.'),
+        (r'났다\.', '났습니다.'), (r'랐다\.', '랐습니다.'),
+        (r'쳤다\.', '쳤습니다.'), (r'볐다\.', '볐습니다.'),
+        (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
+        (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
+        (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
+        # 마침표 없이 문자열 끝나는 경우
+        (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
+        (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
+        (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
+        (r'한다$', '합니다.'),    (r'된다$', '됩니다.'),
+    ]
+    for pattern, replacement in pairs:
+        text = re.sub(pattern, replacement, text)
+    return text
+
+
+def apply_hamnida(summary: dict) -> dict:
+    """summary dict의 텍스트 필드에 말투 후처리 적용"""
+    if not summary:
+        return summary
+    if isinstance(summary.get("market_event"), list):
+        summary["market_event"] = [_to_hamnida(s) for s in summary["market_event"]]
+    if isinstance(summary.get("one_line_summary"), str):
+        summary["one_line_summary"] = _to_hamnida(summary["one_line_summary"])
+    if isinstance(summary.get("market_sentiment"), str):
+        summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
+    return summary
 
 # ═══════════════════════════════════════════════════════════════
 # REST API로 오늘 기사 목록 수집
@@ -329,17 +325,7 @@ def run_job() -> None:
 # 메인 — 매일 16:30 스케줄
 # ═══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    print("=" * 55)
-    print(" news2day 마감시황 크롤러")
-    print(f" API  : {SEARCH_API_URL}")
-    print(f" DB   : {DB_NAME}.{COLLECTION_NAME}")
-    print(f" 모델 : {OLLAMA_MODEL}")
-    print(" 실행 : 매일 16:30 (KST)")
-    print("=" * 55)
-
     schedule.every().day.at("16:30").do(run_job)
-
-    print("스케줄러 대기 중 (매일 16:30에 크롤링 실행)...")
     while True:
         schedule.run_pending()
         time.sleep(30)

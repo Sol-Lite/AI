@@ -45,6 +45,29 @@ client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client[DB_NAME]
 collection = db[COLLECTION_NAME]
 
+# ═══════════════════════════════════════════════════════════════
+# 텍스트 전처리
+# ═══════════════════════════════════════════════════════════════
+def clean_text(text: str) -> str:
+    text = html_module.unescape(text)
+    # URL 제거
+    text = re.sub(r'https?://\S+', '', text)
+    # 이메일 제거
+    text = re.sub(r'[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
+    # 기자 바이라인 제거
+    text = re.sub(r'\[[^\]]{1,50}기자\]\s*', '', text)
+    text = re.sub(r'\([^\)]{1,50}기자\)\s*', '', text)
+    text = re.sub(r'[가-힣]{2,6}\s*기자\s*$', '', text, flags=re.MULTILINE)
+    # 저작권 표기 제거
+    text = re.sub(r'ⓒ[^\n.。]{0,60}', '', text)
+    text = re.sub(r'©[^\n.。]{0,60}', '', text)
+    text = re.sub(r'무단\s*전재[^\n.。]{0,60}', '', text)
+    # 장식용 특수문자 제거
+    text = re.sub(r'[■◆★☆◇○□◎▶▷◀◁△▽▲▼●◉]+\s*', '', text)
+    # 연속 공백 정리
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
 
 # ═══════════════════════════════════════════════════════════════
 # 요약 말투 후처리 (-다 → -습니다)
@@ -83,31 +106,6 @@ def apply_hamnida(summary: dict) -> dict:
     if isinstance(summary.get("market_sentiment"), str):
         summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
     return summary
-
-
-# ═══════════════════════════════════════════════════════════════
-# 텍스트 전처리
-# ═══════════════════════════════════════════════════════════════
-def clean_text(text: str) -> str:
-    text = html_module.unescape(text)
-    # URL 제거
-    text = re.sub(r'https?://\S+', '', text)
-    # 이메일 제거
-    text = re.sub(r'[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
-    # 기자 바이라인 제거
-    text = re.sub(r'\[[^\]]{1,50}기자\]\s*', '', text)
-    text = re.sub(r'\([^\)]{1,50}기자\)\s*', '', text)
-    text = re.sub(r'[가-힣]{2,6}\s*기자\s*$', '', text, flags=re.MULTILINE)
-    # 저작권 표기 제거
-    text = re.sub(r'ⓒ[^\n.。]{0,60}', '', text)
-    text = re.sub(r'©[^\n.。]{0,60}', '', text)
-    text = re.sub(r'무단\s*전재[^\n.。]{0,60}', '', text)
-    # 장식용 특수문자 제거
-    text = re.sub(r'[■◆★☆◇○□◎▶▷◀◁△▽▲▼●◉]+\s*', '', text)
-    # 연속 공백 정리
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
-
 
 # ═══════════════════════════════════════════════════════════════
 # 검색 결과에서 오늘 최신 기사 1건 추출
@@ -334,17 +332,7 @@ def run_job() -> None:
 # 메인 — 매일 08:40 스케줄
 # ═══════════════════════════════════════════════════════════════
 if __name__ == "__main__":
-    print("=" * 55)
-    print(" 한국경제 오늘장 미리보기 크롤러")
-    print(f" URL  : {SEARCH_URL}?query={SEARCH_QUERY}")
-    print(f" DB   : {DB_NAME}.{COLLECTION_NAME}")
-    print(f" 모델 : {OLLAMA_MODEL}")
-    print(" 실행 : 매일 08:40 (KST)")
-    print("=" * 55)
-
     schedule.every().day.at("08:40").do(run_job)
-
-    print("스케줄러 대기 중 (매일 08:40에 크롤링 실행)...")
     while True:
         schedule.run_pending()
         time.sleep(30)

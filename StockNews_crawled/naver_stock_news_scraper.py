@@ -30,8 +30,39 @@ collection.create_index([("related_stocks.stock_code", 1)])
 
 
 # ── 본문 전처리 ───────────────────────────────────────────────
+_KNOWN_MEDIA_SN = (
+    r'뉴시스|뉴스1|연합뉴스|파이낸셜뉴스|헤럴드경제|이데일리|머니투데이'
+    r'|한국경제|조선일보|중앙일보|동아일보|한겨레|매일경제|이코노미스트'
+    r'|데일리안|더팩트|서울신문|서울경제|아시아경제|아이뉴스|뉴스핌'
+)
+
+_LEADING_BYLINE_RE_SN = re.compile(
+    r'^(?:'
+    r'[\[\(][^\]\)]{1,60}(?:기자|특파원|앵커|논설위원|선임기자|보험전문기자)[\]\)]\s*'
+    r'|'
+    r'[\[\(][^\]\)]{1,50}[\]\)]\s*[가-힣A-Za-z·\s]{0,20}'
+    r'(?:기자|특파원|앵커|보험전문기자|논설위원|선임기자)\s*[=:]?\s*[가-힣]{0,15}\s*'
+    r'|'
+    r'\[(?:' + _KNOWN_MEDIA_SN + r')\]\s*'
+    r')',
+    re.DOTALL,
+)
+
+
+def _strip_leading_bylines(text: str) -> str:
+    """본문 앞 기자/언론사 바이라인을 건너뛰고 실제 내용 시작점부터 반환"""
+    while True:
+        m = _LEADING_BYLINE_RE_SN.match(text)
+        if not m:
+            break
+        text = text[m.end():].lstrip()
+    return text
+
+
 def clean_body(text):
-    # 1. 기자 바이라인 제거 (문두)
+    # 0. 본문 앞 바이라인 건너뛰기
+    text = _strip_leading_bylines(text)
+    # 1. 기자 바이라인 제거 (문두 — 위에서 못 잡은 나머지 fallback)
     text = re.sub(r'^\[[^\]]{1,40}기자\]\s*', '', text)
     text = re.sub(r'^\[[가-힣a-zA-Z=\s]{2,20}\]\s*[가-힣\s]{2,15}기자\s*=\s*', '', text)
     text = re.sub(r'^\([가-힣a-zA-Z0-9=\s]{2,20}\)\s*[가-힣\s]{2,15}기자\s*=\s*', '', text)
@@ -58,9 +89,26 @@ def clean_body(text):
     text = re.sub(r'https?://\S+', '', text)
     # 9. 매체 제보 안내 블록 제거 (▶카카오톡/▶이메일/▶뉴스 홈페이지 등)
     text = re.sub(r'▶.{0,30}(카카오톡|제보|홈페이지|이메일).{0,100}', '', text)
-    # 9. 장식용 특수문자 제거
+    # 10. 장식용 특수문자 제거
     text = re.sub(r'[■◆★☆◇○□]+\s*', '', text)
-    # 10. 연속 공백 정리
+    # 11. 캡션 텍스트 [출처] 패턴 (앞 텍스트까지 통째로 제거)
+    _SRC = (
+        r'제공|SNS|AP|EPA|AFP|로이터|Reuters|게티|Getty'
+        r'|뉴시스|뉴스1|연합뉴스|연합|뉴스핌|이데일리|머니투데이'
+        r'|한국경제|조선일보|중앙일보|동아일보|한겨레|매일경제|헤럴드경제'
+    )
+    _pat = r'[^\[]{2,80}\s*\[[^\]]*(?:' + _SRC + r')[^\]]*\]\s*'
+    text = re.sub(_pat, ' ', text)
+    # 12. 캡션 텍스트 [언론사=기자] / [언론사 | 기자] 패턴 (앞 짧은 텍스트 포함 제거)
+    text = re.sub(r'[가-힣\w·,·\s]{2,60}\[[^\]]{2,40}기자\]\s*', ' ', text)
+    # 13. 남은 [기자] 바이라인 제거
+    text = re.sub(r'\[[^\]]{1,50}기자\]\s*', '', text)
+    text = re.sub(r'\[[^\]\|]{1,30}\|[^\]]{1,30}기자\]\s*', '', text)
+    # 14. 사진 | 브랜드명 캡션 크레딧 제거
+    text = re.sub(r'\s*사진\s*[|=]\s*[^\s][^.。\n]{0,30}', '', text)
+    # 15. ▲ 로 시작하는 프로모션 문구 제거 (AI 프리즘 등)
+    text = re.sub(r'▲\s*.{0,200}', '', text)
+    # 16. 연속 공백 정리
     return re.sub(r'\s+', ' ', text).strip()
 
 
@@ -107,15 +155,33 @@ def fetch_article_body(office_id, article_id):
         if not content:
             return "", [], thumbnail_url
 
+        def _extract_lines(tag):
+            """<br> 태그를 줄바꿈으로 처리 후 비어있지 않은 줄 반환"""
+            for br in tag.select("br"):
+                br.replace_with("\n")
+            return [s.strip() for s in tag.get_text(separator="\n").split("\n") if s.strip()]
+
         subtitles = []
+
+        # 방식 1: strong.media_end_summary (요약형 소제목)
         summary_tag = content.select_one("strong.media_end_summary")
         if summary_tag:
-            subtitles += [s.strip() for s in summary_tag.get_text(separator="\n").split("\n") if s.strip()]
+            subtitles += _extract_lines(summary_tag)
             summary_tag.decompose()
 
-        for b_tag in content.select("article > b"):
+        # 방식 2: border-left div/strong — 인라인 스타일 소제목
+        for tag in content.select("div[style*='border-left'], strong[style*='border-left']"):
+            for line in _extract_lines(tag):
+                if len(line) > 5 and line not in subtitles:
+                    subtitles.append(line)
+            tag.decompose()
+
+        # 방식 3: b 태그 소제목 (border-left 내부 b는 이미 위에서 처리)
+        for b_tag in content.select("b"):
+            if b_tag.find_parent(style=lambda s: s and "border-left" in s):
+                continue
             text = b_tag.get_text(strip=True)
-            if text:
+            if text and len(text) > 5 and text not in subtitles:
                 subtitles.append(text)
             b_tag.decompose()
 
@@ -270,7 +336,7 @@ def run_job(stocks):
 
 # ── 메인 ─────────────────────────────────────────────────────
 if __name__ == "__main__":
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     kospi_stocks = load_kospi200(os.path.join(base_dir, "코스피200리스트.xlsx"))
     nasdaq_stocks = load_nasdaq100(os.path.join(base_dir, "Nasdaq-100.xlsx"))
     all_stocks = kospi_stocks + nasdaq_stocks
