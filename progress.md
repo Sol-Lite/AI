@@ -1,117 +1,144 @@
 # 투자 챗봇 개발 진행상황
 
-최종 업데이트: 2026-03-18
+최종 업데이트: 2026-03-21
+
+---
+
+## 프로젝트 구조
+
+```
+MidProject/
+├── app/
+│   ├── main.py                          ✅  FastAPI 엔드포인트
+│   ├── core/
+│   │   └── config.py                    ✅  환경변수 로드
+│   ├── db/
+│   │   ├── oracle.py                    ✅  Oracle 연결 (oracledb)
+│   │   └── mongo.py                     ✅  MongoDB 연결 (sollite.news)
+│   ├── services/
+│   │   └── llm.py                       ✅  Ollama tool calling 루프 + 템플릿 디스패치
+│   ├── tools/
+│   │   ├── __init__.py                  ✅
+│   │   ├── get_market_summary.py        ✅  MongoDB 실제 연동
+│   │   ├── get_db_data.py               ✅  Oracle 실제 연동 (잔고/거래내역/포트폴리오)
+│   │   ├── get_market_data.py           ✅  Spring API 실제 연동 (시세/차트/환율), 랭킹/지수 mock
+│   │   └── execute_order.py             ⏳  mock (LS증권 API 연동 필요)
+│   └── templates/
+│       ├── account.py                   ✅  잔고
+│       ├── trades.py                    ✅  거래내역
+│       ├── portfolio.py                 ✅  포트폴리오 분석
+│       ├── market.py                    ✅  한국/미국 시황, 종목 뉴스
+│       ├── order.py                     ⏳  주문 결과 템플릿 (미작성)
+│       └── guide.py                     ⏳  안내 메시지 템플릿 (미작성)
+├── portfolio.md                         ✅  _query_portfolio 상세 설계 문서
+├── .env                                 ✅
+└── requirements.txt                     ✅
+```
 
 ---
 
 ## 완료된 작업
 
-### 1. 프로젝트 구조 생성
-
-```
-MidProject/
-├── app/
-│   ├── main.py                      ✅
-│   ├── core/
-│   │   └── config.py                ✅
-│   ├── services/
-│   │   └── llm.py                   ✅
-│   └── tools/
-│       ├── __init__.py              ✅
-│       ├── get_market_summary.py    ✅
-│       ├── get_db_data.py           ✅
-│       ├── get_market_data.py       ✅
-│       └── execute_order.py         ✅
-├── .env                             ✅
-└── requirements.txt                 ✅
-```
-
----
-
-### 2. 도구 4개 mock 구현
-
-| 도구                 | 파일                          | 상태      |
-| -------------------- | ----------------------------- | --------- |
-| `get_market_summary` | `tools/get_market_summary.py` | mock 완료 |
-| `get_db_data`        | `tools/get_db_data.py`        | mock 완료 |
-| `get_market_data`    | `tools/get_market_data.py`    | mock 완료 |
-| `execute_order`      | `tools/execute_order.py`      | mock 완료 |
-
-각 도구 파일 내 `# TODO:` 주석으로 실제 연동 교체 위치 표시
-
-#### get_market_summary
-
-- 입력: `date` (생략 시 오늘)
-- 출력: `{ date, title[], summary[], count, source }`
-- TODO: `_fetch_news_and_summarize()` → 뉴스 크롤링 + llama
-
-#### get_db_data
-
-- 입력: `type` (balance / trades / portfolio), `limit`
-- 출력: 잔고 / 거래내역 / 포트폴리오 분석 딕셔너리
-- TODO: `_query_balance/trades/portfolio(account_id)` → Oracle SELECT + Redis 캐시
-
-#### get_market_data
-
-- 입력: `type` (price / chart / ranking / index / exchange) + 타입별 파라미터
-- 출력: 시세 / 차트 캔들 / 랭킹 / 지수 / 환율 딕셔너리
-- TODO: `_fetch_*()` → LS증권 API + Redis 캐시
-
-#### execute_order
-
-- 입력: `type` (buy / sell / exchange) + 타입별 파라미터
-- 출력: 주문 접수 결과 / 환전 완료 결과 딕셔너리
-- TODO: `_place_stock_order/fx_order(account_id)` → LS증권 API
-
----
-
-### 3. llama tool calling 루프 (`services/llm.py`)
-
-- Ollama `/api/chat` 호출 (모델: llama3.1:8b)
-- 도구 4개 JSON 스키마 정의 (LLM에 노출)
-- tool_calls 파싱 → `_dispatch()` → 결과를 tool 메시지로 추가 → 루프 반복
-- llm이 tool_calls 없는 응답 반환 시 루프 종료
-
----
-
-### 4. FastAPI 엔드포인트 (`main.py`)
+### 1. FastAPI 엔드포인트 (`main.py`)
 
 - `POST /chat` — `{ "message": "..." }` 입력, `{ "reply": "..." }` 출력
 - `HTTPBearer` 의존성으로 JWT 파싱 → `user_context` 추출
+- JWT 실제 검증은 TODO (현재 하드코딩)
 
 ---
 
-### 5. 세션 기반 user_context 설계
+### 2. LLM Tool Calling 루프 (`services/llm.py`)
 
-**핵심 원칙**: `user_id` / `account_id`는 LLM 스키마에 노출하지 않음
+- Ollama `/api/chat` 호출 (모델: llama3.1:8b)
+- 도구 4개 JSON 스키마 정의
+- `_TEMPLATE_DISPATCH`: `(tool_name, type)` → 템플릿 함수 매핑
+  - 템플릿이 등록된 경우 LLM 응답 생성 없이 즉시 반환
+  - 등록되지 않은 경우 tool 결과를 LLM에 재전달하여 응답 생성
 
-흐름:
+| (tool_name, type)                   | 템플릿 함수            |
+| ----------------------------------- | ---------------------- |
+| `get_db_data` / `balance`           | `format_balance`       |
+| `get_db_data` / `trades`            | `format_trades`        |
+| `get_db_data` / `portfolio`         | `format_portfolio`     |
+| `get_market_summary` / `korea`      | `format_korea_summary` |
+| `get_market_summary` / `us`         | `format_us_summary`    |
+| `get_market_summary` / `stock_news` | `format_stock_news`    |
 
-```
-JWT → get_user_context() → user_context dict
-                              ↓
-               chat(message, user_context)
-                              ↓
-            _dispatch() 시 코드가 직접 주입
-            (get_db_data, execute_order 에만)
-```
+---
 
-- `get_market_summary`, `get_market_data`는 공용 데이터 → user_context 불필요
-- `get_db_data`, `execute_order`는 계정 데이터 → `account_id` 주입
+### 3. 도구 구현
+
+#### get_market_summary (MongoDB 실제 연동)
+
+- `type`: `korea` | `us` | `stock_news`
+- `sollite.news` 컬렉션에서 최신 문서 조회
+- `published_at` 날짜 포맷: `YYYY년 MM월 DD일`
+- `stock_news`: `stock_name` 포함 반환 (종목명 표시용)
+
+#### get_db_data (Oracle 연동)
+
+- `balance`: `cash_balances` 테이블에서 KRW/USD 잔고 조회
+- `trades`: `executions` + `instruments` JOIN, 매수/매도 최근 N건 CTE
+- `portfolio`: 6개 쿼리 + Spring API 실시간 시세/환율 조합
+  - `portfolio_snapshots`: 기간별 수익률(1M/3M/6M), MDD, 변동성
+  - `holdings` + Spring API: 실시간 평가액, 섹터/종목 집중도, 미실현손익
+  - `cash_balances`: 현금 잔고
+  - `executions`: 거래 통계, 실현손익
+
+#### get_market_data (Spring API 실제 연동)
+
+| type           | 연동 상태 | 엔드포인트                               |
+| -------------- | --------- | ---------------------------------------- |
+| `price`        | ✅ 실제   | `/api/market/stocks/{code}/price`        |
+| `chart`        | ✅ 실제   | `/api/market/stocks/{code}/minute-chart` |
+| `daily`        | ✅ 실제   | `/api/market/stocks/{code}/daily`        |
+| `period_chart` | ✅ 실제   | `/api/market/stocks/{code}/chart`        |
+| `exchange`     | ✅ 실제   | `/api/market/exchange`                   |
+| `ranking`      | ⏳ mock   | LS증권 API 연동 필요                     |
+| `index`        | ⏳ mock   | LS증권 API 연동 필요                     |
+
+#### execute_order (mock)
+
+- `buy` / `sell` / `exchange` 모두 mock 데이터 반환
+- LS증권 API 연동 필요
+
+---
+
+### 4. 응답 템플릿
+
+LLM이 텍스트를 생성하는 대신, 도구 결과를 직접 포맷팅하여 채팅 메시지로 반환합니다.
+
+| 파일                     | 함수                   | 출력 내용                                  |
+| ------------------------ | ---------------------- | ------------------------------------------ |
+| `templates/account.py`   | `format_balance`       | KRW/USD 잔고, 주문/출금 가능 금액          |
+| `templates/trades.py`    | `format_trades`        | 매수/매도 건수 요약 + 최근 체결 내역       |
+| `templates/portfolio.py` | `format_portfolio`     | 수익률 / 집중도 / 리스크 3섹션 리포트      |
+| `templates/market.py`    | `format_korea_summary` | 한국 시황 (이슈·섹터·종목)                 |
+| `templates/market.py`    | `format_us_summary`    | 미국 시황 (이슈·시장심리)                  |
+| `templates/market.py`    | `format_stock_news`    | 종목 뉴스 (종목명·기사제목·요약, 최대 3건) |
+
+---
+
+### 5. DB 연결
+
+| DB      | 파일           | 상태 | 비고                              |
+| ------- | -------------- | ---- | --------------------------------- |
+| Oracle  | `db/oracle.py` | ✅   | `oracledb`, fetch_one/all/execute |
+| MongoDB | `db/mongo.py`  | ✅   | `sollite.news` 컬렉션             |
 
 ---
 
 ## 남은 작업
 
-| 순서 | 항목                                            | 비고                   |
-| ---- | ----------------------------------------------- | ---------------------- |
-| 1    | LS증권 API 연동 (`services/ls_api.py`)          | Access Token 발급 필요 |
-| 2    | Oracle 연동 (`db/oracle.py`)                    | cx_Oracle 설치 필요    |
-| 3    | MongoDB 연동 (`db/mongo.py`)                    | 채팅 이력 저장용       |
-| 4    | Redis 연동 (`db/redis.py`)                      | 시세 캐시, 세션 캐시   |
-| 5    | JWT 실제 검증 (`main.py` `get_user_context`)    | python-jose 사용       |
-| 6    | kobart 요약 모델 연동 (`get_market_summary.py`) | —                      |
-| 7    | 프론트 채팅창 연결                              | —                      |
+| 구분 | 항목                                            | 비고                            |
+| ---- | ----------------------------------------------- | ------------------------------- |
+| 1    | `portfolio_snapshots` 테이블 Oracle에 생성      | DDL은 portfolio.md 참고         |
+| 2    | JWT 실제 검증 (`main.py` `get_user_context`)    | python-jose 사용 예정           |
+| 3    | `execute_order` LS증권 API 연동                 | CSPAT00601 (국내), 해외주문 API |
+| 4    | `get_market_data` ranking/index LS증권 API 연동 | t1463/t1464, t1511              |
+| 5    | `templates/order.py` 작성                       | 매수/매도/환전 주문 결과 템플릿 |
+| 6    | `templates/guide.py` 작성                       | 안내 메시지 템플릿              |
+| 7    | 프론트엔드 채팅창 연결                          | `/chat` API 연결                |
 
 ---
 
@@ -138,7 +165,7 @@ curl -X POST http://localhost:8000/chat \
 | ------------------------------------------------ | ---------------------------------------- |
 | `OLLAMA_BASE_URL`                                | Ollama 서버 주소 (기본: localhost:11434) |
 | `OLLAMA_MODEL`                                   | LLM 모델명 (기본: llama3.1:8b)           |
-| `LS_APP_KEY` / `LS_APP_SECRET`                   | LS증권 Open API 인증                     |
 | `ORACLE_DSN` / `ORACLE_USER` / `ORACLE_PASSWORD` | Oracle DB                                |
 | `MONGO_URI` / `MONGO_DB`                         | MongoDB                                  |
 | `REDIS_HOST` / `REDIS_PORT`                      | Redis                                    |
+| `SPRING_BASE_URL`                                | Spring API (기본: localhost:8080)        |

@@ -5,6 +5,10 @@ import json
 import httpx
 from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
 from app.tools import get_market_summary, get_db_data, get_market_data, execute_order
+from app.templates.account import format_balance
+from app.templates.trades import format_trades
+from app.templates.portfolio import format_portfolio
+from app.templates.market import format_korea_summary, format_us_summary, format_stock_news
 
 # ── Tool 스키마 정의 (llama3.1 tool_use 포맷) ──────────────────────────────────
 
@@ -91,6 +95,16 @@ _TOOL_DISPATCH = {
     "execute_order":      execute_order,
 }
 
+# (tool_name, type) → 템플릿 함수. 등록된 경우 LLM 대신 템플릿으로 직접 반환.
+_TEMPLATE_DISPATCH: dict[tuple[str, str], callable] = {
+    ("get_db_data", "balance"):        format_balance,
+    ("get_db_data", "trades"):         format_trades,
+    ("get_db_data", "portfolio"):      format_portfolio,
+    ("get_market_summary", "korea"):      format_korea_summary,
+    ("get_market_summary", "us"):         format_us_summary,
+    ("get_market_summary", "stock_news"): format_stock_news,
+}
+
 
 # ── 메인 chat 함수 ─────────────────────────────────────────────────────────────
 
@@ -115,6 +129,8 @@ def chat(user_message: str, user_context: dict) -> str:
             return msg.get("content", "")
 
         # 도구 실행 — user_context는 LLM이 채운 fn_args와 별도로 주입
+        template_replies = []
+        tool_results = []
         for tc in tool_calls:
             fn_name = tc["function"]["name"]
             fn_args = tc["function"].get("arguments", {})
@@ -122,10 +138,20 @@ def chat(user_message: str, user_context: dict) -> str:
                 fn_args = json.loads(fn_args)
 
             result = _dispatch(fn_name, fn_args, user_context)
-            messages.append({
-                "role":    "tool",
-                "content": json.dumps(result, ensure_ascii=False),
-            })
+
+            formatter = _TEMPLATE_DISPATCH.get((fn_name, fn_args.get("type")))
+            if formatter:
+                template_replies.append(formatter(result))
+            else:
+                tool_results.append(json.dumps(result, ensure_ascii=False))
+
+        # 템플릿이 있는 결과는 바로 반환
+        if template_replies:
+            return "\n\n".join(template_replies)
+
+        # 템플릿 없는 결과는 LLM에 다시 전달
+        for content in tool_results:
+            messages.append({"role": "tool", "content": content})
 
 
 def _call_ollama(messages: list[dict]) -> dict:

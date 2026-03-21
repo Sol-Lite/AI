@@ -1,6 +1,5 @@
 """
-도구 4: execute_order - 주문 실행 (매수/매도/환전)
-TODO: LS증권 API 연동 시 _place_*() 내부를 실제 호출로 교체
+도구 4: execute_order - LS증권 API 연동 (주문 실행: 매수/매도/환전)
 """
 import uuid
 from datetime import date

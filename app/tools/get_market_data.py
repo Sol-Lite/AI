@@ -1,79 +1,118 @@
 """
-도구 3: get_market_data - 실시간 시장 데이터 (시세/차트/랭킹/지수/환율)
-TODO: LS증권 API 연동 시 _fetch_*() 내부를 실제 호출로 교체
+도구 3: get_market_data - LS증권 API 연동 (실시간 시장 데이터: 시세/차트/랭킹/지수/환율)
 """
 from typing import Literal
+import requests
+from datetime import date as date_type
 
 
-def get_market_data(
-    type: Literal["price", "chart", "ranking", "index", "exchange"],
-    stock_code: str | None = None,
-    market: Literal["domestic", "overseas"] | None = None,
-    ranking_type: Literal["volume", "change_rate", "foreign_buy"] | None = None,
-    index_code: Literal["KOSPI", "NASDAQ"] | None = None,
-    currency_pair: Literal["USDKRW", "EURKRW"] | None = None,
-) -> dict:
-    """
-    실시간 시장 데이터를 반환합니다.
-
-    Args:
-        type: "price" | "chart" | "ranking" | "index" | "exchange"
-        stock_code: 종목코드 (price/chart 시 필요)
-        market: "domestic" | "overseas" (price/chart/ranking 시)
-        ranking_type: "volume" | "change_rate" | "foreign_buy" (ranking 시)
-        index_code: "KOSPI" | "NASDAQ" (index 시)
-        currency_pair: "USDKRW" | "EURKRW" (exchange 시)
-    """
+# 시세 조회, 차트, 랭킹, 지수, 환율 등 시장 데이터 조회를 위한 도구 함수
+def get_market_data(type: str, **kwargs):
     if type == "price":
-        return _fetch_price(stock_code, market)
+        return _fetch_price(kwargs.get("stock_code"), kwargs.get("market"))
+
     elif type == "chart":
-        return _fetch_chart(stock_code, market)
+        return _fetch_chart(kwargs.get("stock_code"), kwargs.get("market"))
+
+    elif type == "daily":
+        return _fetch_daily(kwargs.get("stock_code"), kwargs.get("date"))
+
+    elif type == "period_chart":
+        return _fetch_period_chart(
+            kwargs.get("stock_code"),
+            kwargs.get("start_date"),
+            kwargs.get("end_date"),
+        )
     elif type == "ranking":
-        return _fetch_ranking(market, ranking_type)
-    elif type == "index":
-        return _fetch_index(index_code)
+        return _fetch_ranking(kwargs.get("market"), kwargs.get("ranking_type"))
+
     elif type == "exchange":
-        return _fetch_exchange(currency_pair)
+        return _fetch_exchange(kwargs.get("currency_pair"))
+
     else:
         raise ValueError(f"Unknown type: {type}")
 
+SPRING_BASE_URL = "http://localhost:8080"
+
+def _call_spring_api(path: str, params: dict | None = None):
+    try:
+        url = f"{SPRING_BASE_URL}{path}"
+        res = requests.get(url, params=params, timeout=3)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "SPRING_API_ERROR",
+            "message": str(e)
+        }
 
 # ── price ─────────────────────────────────────────────────────────────────────
-
-_MOCK_PRICES = {
-    "005930": {"stock_name": "삼성전자",  "current_price": 75_000,  "change": 1_500,  "change_rate":  2.04, "open": 73_500, "high": 75_500, "low": 73_000, "volume": 15_000_000},
-    "000660": {"stock_name": "SK하이닉스","current_price": 195_000, "change": -2_000, "change_rate": -1.02, "open": 197_000,"high": 197_500,"low": 194_000,"volume":  5_000_000},
-    "035420": {"stock_name": "NAVER",    "current_price": 210_000, "change":  3_000,  "change_rate":  1.45, "open": 207_000,"high": 211_000,"low": 206_000,"volume":  2_500_000},
-    # 해외
-    "AAPL":   {"stock_name": "Apple",    "current_price": 225,     "change":    3.5,  "change_rate":  1.58, "open": 221,    "high": 226,    "low": 220,    "volume": 80_000_000},
-    "NVDA":   {"stock_name": "NVIDIA",   "current_price": 875,     "change":  -12.0,  "change_rate": -1.35, "open": 887,    "high": 889,    "low": 872,    "volume": 40_000_000},
-}
-
+# 시세 조회 템플릿을 위한 함수 병합
 def _fetch_price(stock_code: str | None, market: str | None) -> dict:
-    # TODO: LS증권 API t1102(국내)/HDFSCMUP0(해외) 호출로 교체
-    if stock_code and stock_code in _MOCK_PRICES:
-        return {"stock_code": stock_code, **_MOCK_PRICES[stock_code]}
+    if not stock_code:
+        return {"error": "stock_code is required"}
+
+    price_data = _call_spring_api(
+        f"/api/market/stocks/{stock_code}/price",
+        {
+            "stockCode": stock_code,
+            "market": market,
+        },
+    )
+    if price_data.get("error"):
+        return price_data
+
+    daily_data = _call_spring_api(
+        f"/api/market/stocks/{stock_code}/daily",
+        {"date": str(date_type.today())},
+    )
+    if daily_data.get("error"):
+        daily_data = {}
+
     return {
-        "stock_code": stock_code or "UNKNOWN",
-        "stock_name": "알 수 없는 종목",
-        "current_price": 0, "change": 0, "change_rate": 0.0,
-        "open": 0, "high": 0, "low": 0, "volume": 0,
+        "stock_name": stock_code,
+        "stock_code": price_data.get("stockCode", stock_code),
+        "current_price": price_data.get("currentPrice", 0),
+        "change": price_data.get("changeAmount", 0),
+        "change_rate": price_data.get("changeRate", 0.0),
+        "open": daily_data.get("openPrice", 0),
+        "high": daily_data.get("highPrice", 0),
+        "low": daily_data.get("lowPrice", 0),
+        "volume": price_data.get("volume", 0),
     }
 
 
 # ── chart ─────────────────────────────────────────────────────────────────────
 
+
+#종목 분봉 차트
 def _fetch_chart(stock_code: str | None, market: str | None) -> dict:
-    # TODO: LS증권 API t8410(국내)/HDFSCHART(해외) 호출로 교체
-    return {
-        "stock_code": stock_code,
-        "market": market,
-        "candles": [
-            {"date": "2026-03-17", "open": 73_500, "high": 75_500, "low": 73_000, "close": 75_000, "volume": 15_000_000},
-            {"date": "2026-03-14", "open": 72_000, "high": 74_000, "low": 71_500, "close": 73_500, "volume": 12_000_000},
-            {"date": "2026-03-13", "open": 70_500, "high": 72_500, "low": 70_000, "close": 72_000, "volume": 10_000_000},
-        ],
-    }
+    if not stock_code:
+        return {"error": "stock_code is required"}
+
+    return _call_spring_api(
+        f"/api/market/stocks/{stock_code}/minute-chart",
+        {"ncnt": 1}  # 1분봉
+    )
+
+#종목 기간별 차트(일/주/월/년)
+def _fetch_period_chart(stock_code: str, start_date: str, end_date: str) -> dict:
+    return _call_spring_api(
+        f"/api/market/stocks/{stock_code}/chart",
+        {
+            "period": "DAILY",
+            "startDate": start_date,
+            "endDate": end_date
+        }
+    )
+
+# 저가,고가,종가 등등 
+def _fetch_daily(stock_code: str, date: str) -> dict:
+    return _call_spring_api(
+        f"/api/market/stocks/{stock_code}/daily",
+        {"date": date}
+    )
 
 
 # ── ranking ───────────────────────────────────────────────────────────────────
@@ -121,12 +160,17 @@ def _fetch_index(index_code: str | None) -> dict:
 
 # ── exchange ──────────────────────────────────────────────────────────────────
 
-_MOCK_EXCHANGE = {
-    "USDKRW": {"rate": 1_380.5, "change": -2.3},
-    "EURKRW": {"rate": 1_490.2, "change":  5.1},
-}
-
 def _fetch_exchange(currency_pair: str | None) -> dict:
-    # TODO: LS증권 API 또는 한국은행 API 환율 조회로 교체
-    base = _MOCK_EXCHANGE.get(currency_pair or "USDKRW", {"rate": 0.0, "change": 0.0})
-    return {"currency_pair": currency_pair, **base}
+    # TODO: Spring API 환율 엔드포인트 확정 시 path 교체
+    pair = currency_pair or "USDKRW"
+    data = _call_spring_api(
+        "/api/market/exchange",
+        {"currencyPair": pair},
+    )
+    if data.get("error"):
+        return {"currency_pair": pair, "rate": 0.0, "change": 0.0}
+    return {
+        "currency_pair": pair,
+        "rate":   data.get("rate", 0.0),
+        "change": data.get("change", 0.0),
+    }
