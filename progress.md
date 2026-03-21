@@ -28,8 +28,7 @@ MidProject/
 │       ├── trades.py                    ✅  거래내역
 │       ├── portfolio.py                 ✅  포트폴리오 분석
 │       ├── market.py                    ✅  한국/미국 시황, 종목 뉴스
-│       ├── order.py                     ⏳  주문 결과 템플릿 (미작성)
-│       └── guide.py                     ⏳  안내 메시지 템플릿 (미작성)
+│       └── order.py                     ✅  주문 완료 메시지 템플릿
 ├── portfolio.md                         ✅  _query_portfolio 상세 설계 문서
 ├── .env                                 ✅
 └── requirements.txt                     ✅
@@ -51,9 +50,19 @@ MidProject/
 
 - Ollama `/api/chat` 호출 (모델: llama3.1:8b)
 - 도구 4개 JSON 스키마 정의
-- `_TEMPLATE_DISPATCH`: `(tool_name, type)` → 템플릿 함수 매핑
+- **system prompt**: 매 요청마다 주입, LLM의 툴 선택 라우팅 규칙 명시
+- **`_TEMPLATE_DISPATCH`**: `(tool_name, type)` → 템플릿 함수 매핑
   - 템플릿이 등록된 경우 LLM 응답 생성 없이 즉시 반환
-  - 등록되지 않은 경우 tool 결과를 LLM에 재전달하여 응답 생성
+  - 등록되지 않은 경우 tool 결과를 LLM에 재전달하여 자연어 응답 생성
+
+**LLM 제어 역할 분리:**
+
+| 구분             | 역할                              | 이유                                                                 |
+| ---------------- | --------------------------------- | -------------------------------------------------------------------- |
+| system prompt    | 툴 선택 라우팅 규칙               | 여러 툴에 걸친 선택 기준은 한 곳에 모아야 LLM이 일관되게 판단 가능. 작은 모델(llama3.1:8b)은 tool description만으로 놓치는 케이스가 생김. 테스트 중 실패 케이스 발견 시 system prompt만 수정하면 됨 |
+| tool description | 툴 목적 및 파라미터 의미          | 툴 자체가 무엇을 하는지 간결하게 기술. 라우팅 규칙까지 담으면 불필요하게 길어짐 |
+
+**_TEMPLATE_DISPATCH 등록 현황:**
 
 | (tool_name, type)                   | 템플릿 함수            |
 | ----------------------------------- | ---------------------- |
@@ -63,6 +72,9 @@ MidProject/
 | `get_market_summary` / `korea`      | `format_korea_summary` |
 | `get_market_summary` / `us`         | `format_us_summary`    |
 | `get_market_summary` / `stock_news` | `format_stock_news`    |
+| `execute_order` / `buy`             | `format_order`         |
+| `execute_order` / `sell`            | `format_order`         |
+| `execute_order` / `exchange`        | `format_order`         |
 
 ---
 
@@ -77,13 +89,25 @@ MidProject/
 
 #### get_db_data (Oracle 연동)
 
-- `balance`: `cash_balances` 테이블에서 KRW/USD 잔고 조회
-- `trades`: `executions` + `instruments` JOIN, 매수/매도 최근 N건 CTE
-- `portfolio`: 6개 쿼리 + Spring API 실시간 시세/환율 조합
+전체 조회(템플릿 반환) / 세부 질문(LLM 자연어 응답) 두 가지 타입으로 분리:
+
+| type               | 응답 방식        | 설명                        |
+| ------------------ | ---------------- | --------------------------- |
+| `balance`          | 템플릿 즉시 반환 | KRW/USD 잔고 전체 리포트    |
+| `trades`           | 템플릿 즉시 반환 | 거래내역 전체 리포트        |
+| `portfolio`        | 템플릿 즉시 반환 | 포트폴리오 전체 분석 리포트 |
+| `balance_detail`   | LLM 자연어 응답  | 특정 잔고 항목 질문         |
+| `trades_detail`    | LLM 자연어 응답  | 특정 거래 항목 질문         |
+| `portfolio_detail` | LLM 자연어 응답  | 특정 포트폴리오 항목 질문   |
+
+- `balance/balance_detail`: `cash_balances` 테이블에서 KRW/USD 잔고 조회 (동일 쿼리)
+- `trades/trades_detail`: `executions` + `instruments` JOIN, 매수/매도 최근 N건 CTE (동일 쿼리)
+- `portfolio/portfolio_detail`: 6개 쿼리 + Spring API 실시간 시세/환율 조합 (동일 쿼리)
   - `portfolio_snapshots`: 기간별 수익률(1M/3M/6M), MDD, 변동성
-  - `holdings` + Spring API: 실시간 평가액, 섹터/종목 집중도, 미실현손익
+  - `holdings` + Spring API: 실시간 평가액(`domestic_stock_value`), 섹터/종목 집중도, 미실현손익
   - `cash_balances`: 현금 잔고
   - `executions`: 거래 통계, 실현손익
+  - 반환값에 `stock_returns` 포함 (종목별 수익률 전체 리스트 — "삼성전자 수익률" 같은 세부 질문 대응)
 
 #### get_market_data (Spring API 실제 연동)
 
@@ -116,6 +140,7 @@ LLM이 텍스트를 생성하는 대신, 도구 결과를 직접 포맷팅하여
 | `templates/market.py`    | `format_korea_summary` | 한국 시황 (이슈·섹터·종목)                 |
 | `templates/market.py`    | `format_us_summary`    | 미국 시황 (이슈·시장심리)                  |
 | `templates/market.py`    | `format_stock_news`    | 종목 뉴스 (종목명·기사제목·요약, 최대 3건) |
+| `templates/order.py`     | `format_order`         | 매수/매도/환전 주문 완료 메시지             |
 
 ---
 
@@ -136,8 +161,7 @@ LLM이 텍스트를 생성하는 대신, 도구 결과를 직접 포맷팅하여
 | 2    | JWT 실제 검증 (`main.py` `get_user_context`)    | python-jose 사용 예정           |
 | 3    | `execute_order` LS증권 API 연동                 | CSPAT00601 (국내), 해외주문 API |
 | 4    | `get_market_data` ranking/index LS증권 API 연동 | t1463/t1464, t1511              |
-| 5    | `templates/order.py` 작성                       | 매수/매도/환전 주문 결과 템플릿 |
-| 6    | `templates/guide.py` 작성                       | 안내 메시지 템플릿              |
+| ~~5~~ | ~~`templates/order.py` 작성~~                  | ~~완료~~                                    |
 | 7    | 프론트엔드 채팅창 연결                          | `/chat` API 연결                |
 
 ---

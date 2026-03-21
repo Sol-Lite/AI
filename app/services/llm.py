@@ -8,7 +8,8 @@ from app.tools import get_market_summary, get_db_data, get_market_data, execute_
 from app.templates.account import format_balance
 from app.templates.trades import format_trades
 from app.templates.portfolio import format_portfolio
-from app.templates.market import format_korea_summary, format_us_summary, format_stock_news
+from app.templates.market_summary import format_korea_summary, format_us_summary, format_stock_news
+from app.templates.order import format_order
 
 # ── Tool 스키마 정의 (llama3.1 tool_use 포맷) ──────────────────────────────────
 
@@ -36,12 +37,19 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_db_data",
-            "description": "잔고, 최근 거래내역, 포트폴리오 분석 등 사용자의 내부 DB 데이터를 조회합니다.",
+            "description": "사용자의 잔고, 거래내역, 포트폴리오 데이터를 조회합니다.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "type":  {"type": "string", "enum": ["balance", "trades", "portfolio"]},
-                    "limit": {"type": "integer", "description": "trades 조회 건수 (기본 3)"},
+                    "type": {
+                        "type": "string",
+                        "enum": ["balance", "trades", "portfolio", "balance_detail", "trades_detail", "portfolio_detail"],
+                        "description": (
+                            "balance/trades/portfolio: 전체 조회 → 포맷된 리포트 반환. "
+                            "balance_detail/trades_detail/portfolio_detail: 세부 질문 → LLM이 자연어로 답변."
+                        ),
+                    },
+                    "limit": {"type": "integer", "description": "trades/trades_detail 조회 건수 (기본 3)"},
                 },
                 "required": ["type"],
             },
@@ -103,6 +111,9 @@ _TEMPLATE_DISPATCH: dict[tuple[str, str], callable] = {
     ("get_market_summary", "korea"):      format_korea_summary,
     ("get_market_summary", "us"):         format_us_summary,
     ("get_market_summary", "stock_news"): format_stock_news,
+    ("execute_order", "buy"):             format_order,
+    ("execute_order", "sell"):            format_order,
+    ("execute_order", "exchange"):        format_order,
 }
 
 
@@ -117,7 +128,42 @@ def chat(user_message: str, user_context: dict) -> str:
         user_context: 세션에서 추출한 {"user_id": ..., "account_id": ...}
                       LLM 스키마에는 노출되지 않으며, 도구 호출 시 코드가 직접 주입합니다.
     """
-    messages = [{"role": "user", "content": user_message}]
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "당신은 투자 어시스턴트입니다. 한국어로 간결하게 답변하세요.\n\n"
+                "■ get_market_summary — 시황·뉴스 요청 시 사용\n"
+                "  - korea:      '한국 증시', '코스닥 어때', '오늘 시장 어때'\n"
+                "  - us:         '미국 장', '나스닥', '월가 어때'\n"
+                "  - stock_news: '삼성전자 뉴스', '특정 종목 관련 기사'\n\n"
+                "■ get_db_data — 사용자 계좌, 거래내역, 포트폴리오 데이터 조회 시 사용\n"
+                "  전체 조회 (포맷된 리포트 반환):\n"
+                "  - balance:   '잔고 보여줘', '잔고 알려줘', '계좌 잔고 조회'\n"
+                "  - trades:    '거래내역 보여줘', '최근 거래 알려줘'\n"
+                "  - portfolio: '포트폴리오 분석해줘', '내 포트폴리오 어때'\n"
+                "  특정 값 질문 (LLM이 직접 답변):\n"
+                "  - balance_detail:   '원화 얼마야?', '달러 잔고', '출금 가능 금액'\n"
+                "  - trades_detail:    '매수 몇 번 했어?', '최근에 뭐 샀어?', '매도 건수'\n"
+                "  - portfolio_detail: '평가금액 얼마야?', 'MDD 얼마야?', '삼성전자 수익률'\n\n"
+                "■ get_market_data — 실시간 시세·지수·환율·랭킹 조회 시 사용\n"
+                "  - price:        '삼성전자 현재가', '지금 얼마야'\n"
+                "  - chart:        '차트 보여줘', '분봉'\n"
+                "  - daily:        '오늘 고가/저가', '시가 종가'\n"
+                "  - period_chart: '최근 한 달 차트', '주간 차트'\n"
+                "  - ranking:      '거래량 상위', '많이 오른 종목', '외국인 순매수'\n"
+                "  - index:        '코스피 지수', '나스닥 지수'\n"
+                "  - exchange:     '환율 알려줘', '달러 얼마야'\n\n"
+                "■ execute_order — 매수·매도·환전 요청 시 사용\n"
+                "  - buy:      '삼성전자 10주 사줘', '매수해줘'\n"
+                "  - sell:     '삼성전자 팔아줘', '매도해줘'\n"
+                "  - exchange: '달러로 환전해줘', '원화로 바꿔줘'\n"
+                "  ※ 매수/매도 요청 시 종목명·수량·방향(매수/매도) 중 하나라도 빠지면 "
+                "execute_order를 호출하지 말고 부족한 정보를 되물어보세요."
+            ),
+        },
+        {"role": "user", "content": user_message},
+    ]
 
     while True:
         response = _call_ollama(messages)

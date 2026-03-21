@@ -28,7 +28,7 @@ POST /chat  (FastAPI)
       │  JWT → user_context { user_id, account_id }
       ▼
 chat(message, user_context)  (services/llm.py)
-      │
+      │  system prompt 주입 (툴 선택 라우팅 규칙)
       ▼
 Ollama /api/chat  ──► LLM이 tool_calls 결정
       │
@@ -79,8 +79,7 @@ MidProject/
 │       ├── trades.py              # format_trades   — 거래내역
 │       ├── portfolio.py           # format_portfolio — 포트폴리오 분석
 │       ├── market.py              # format_korea_summary / format_us_summary / format_stock_news
-│       ├── order.py               # (미구현) 주문 결과 템플릿
-│       └── guide.py               # (미구현) 안내 메시지 템플릿
+│       └── order.py               # format_order — 매수/매도/환전 완료 메시지
 ├── portfolio.md                   # _query_portfolio 상세 설계 문서
 ├── progress.md                    # 개발 진행상황
 ├── .env                           # 환경변수
@@ -108,17 +107,23 @@ get_market_summary(type="stock_news", stock_code="005930")
 
 ### 2. `get_db_data` — 계좌 데이터 조회
 
-| type        | 설명                              | 데이터 소스              |
-|-------------|-----------------------------------|--------------------------|
-| `balance`   | KRW/USD 잔고, 주문/출금 가능 금액 | Oracle (`cash_balances`) |
-| `trades`    | 매수/매도 건수 + 최근 체결 내역   | Oracle (`executions`)    |
-| `portfolio` | 수익률·집중도·리스크 분석 리포트  | Oracle + Spring API      |
+| type               | 설명                              | 응답 방식        | 데이터 소스              |
+|--------------------|-----------------------------------|------------------|--------------------------|
+| `balance`          | KRW/USD 잔고 전체 리포트          | 템플릿 즉시 반환 | Oracle (`cash_balances`) |
+| `trades`           | 거래내역 전체 리포트              | 템플릿 즉시 반환 | Oracle (`executions`)    |
+| `portfolio`        | 수익률·집중도·리스크 전체 리포트  | 템플릿 즉시 반환 | Oracle + Spring API      |
+| `balance_detail`   | 특정 잔고 항목 질문               | LLM 자연어 응답  | Oracle (`cash_balances`) |
+| `trades_detail`    | 특정 거래 항목 질문               | LLM 자연어 응답  | Oracle (`executions`)    |
+| `portfolio_detail` | 특정 포트폴리오 항목 질문         | LLM 자연어 응답  | Oracle + Spring API      |
+
+> `balance/trades/portfolio`: "전체 보여줘·분석해줘" → 포맷된 리포트 반환
+> `balance_detail/trades_detail/portfolio_detail`: "얼마야?·몇 번?·수익률?" → LLM이 해당 값만 추출해 답변
 
 **portfolio 분석 항목:**
 
 | 영역   | 주요 지표                                             |
 |--------|-------------------------------------------------------|
-| 수익률 | 평가손익, 실현손익, 1M/3M/6M 수익률, 최고/최저 종목  |
+| 수익률 | 평가손익, 실현손익, 1M/3M/6M 수익률, 최고/최저 종목, 종목별 수익률 |
 | 집중도 | 섹터별·종목별 비중, 국내/해외 비율                    |
 | 리스크 | MDD, 회복 필요 수익률, 변동성, 거래통계, 손익비       |
 
@@ -143,6 +148,31 @@ get_market_summary(type="stock_news", stock_code="005930")
 | `buy`      | 주식 매수 (시장가/지정가) | mock (연동 예정) |
 | `sell`     | 주식 매도                 | mock (연동 예정) |
 | `exchange` | 환전                      | mock (연동 예정) |
+
+---
+
+## LLM 제어 전략
+
+LLM이 올바른 툴과 타입을 선택하도록 두 가지 방식으로 제어합니다.
+
+### system prompt — 툴 선택 라우팅 규칙
+
+`chat()` 호출 시 매 요청마다 주입되는 지시문입니다. LLM이 사용자 의도를 파악해 어떤 툴의 어떤 타입을 써야 하는지 판단 기준을 제공합니다.
+
+**system prompt로 처리하는 이유:**
+- tool description은 툴 자체의 기능 설명이 목적이라 라우팅 규칙까지 담으면 지나치게 길어집니다.
+- 여러 툴에 걸친 선택 기준(예: "시황 질문이면 get_market_summary, 계좌 질문이면 get_db_data")은 tool description에 분산시키는 것보다 system prompt 한 곳에 모으는 것이 LLM이 이해하기 쉽습니다.
+- llama3.1:8b 같은 작은 모델은 tool description만으로는 판단을 놓칠 수 있어 system prompt로 명시적 규칙을 보강해야 합니다.
+- 테스트하면서 실패 케이스가 생기면 system prompt만 수정하면 되므로 유지보수가 간단합니다.
+
+### tool description — 툴의 목적과 파라미터 의미
+
+각 툴이 무엇을 하는지, 파라미터가 무엇을 의미하는지 간결하게 기술합니다. 라우팅 규칙은 담지 않고 툴 자체 설명에만 집중합니다.
+
+**tool description으로 처리하는 이유:**
+- LLM은 tool_calls를 결정할 때 tool description을 직접 참조하므로, 툴의 역할이 명확히 기술되어 있어야 합니다.
+- system prompt에서 어떤 툴을 쓸지 결정했다면, tool description에서 파라미터를 어떻게 채울지 판단합니다.
+- 역할이 분리되어 있으면 어느 쪽을 수정해야 하는지 명확합니다.
 
 ---
 
@@ -243,13 +273,17 @@ curl -X POST http://localhost:8000/chat \
 
 ## 사용 예시
 
-| 사용자 입력               | LLM 선택 도구                          | 응답 방식        |
-|---------------------------|----------------------------------------|------------------|
-| "내 잔고 알려줘"          | `get_db_data(type=balance)`            | 템플릿 즉시 반환 |
-| "최근 거래내역 보여줘"    | `get_db_data(type=trades)`             | 템플릿 즉시 반환 |
-| "포트폴리오 분석해줘"     | `get_db_data(type=portfolio)`          | 템플릿 즉시 반환 |
-| "오늘 한국 증시 어때?"    | `get_market_summary(type=korea)`       | 템플릿 즉시 반환 |
-| "미국 장 어떻게 됐어?"    | `get_market_summary(type=us)`          | 템플릿 즉시 반환 |
-| "삼성전자 뉴스 알려줘"    | `get_market_summary(type=stock_news)`  | 템플릿 즉시 반환 |
-| "삼성전자 현재가 얼마야?" | `get_market_data(type=price)`          | LLM 자연어 응답  |
-| "삼성전자 10주 매수해줘"  | `execute_order(type=buy)`              | LLM 자연어 응답  |
+| 사용자 입력                  | LLM 선택 도구                                  | 응답 방식        |
+|------------------------------|------------------------------------------------|------------------|
+| "내 잔고 알려줘"             | `get_db_data(type=balance)`                    | 템플릿 즉시 반환 |
+| "원화 잔고 얼마야?"          | `get_db_data(type=balance_detail)`             | LLM 자연어 응답  |
+| "최근 거래내역 보여줘"       | `get_db_data(type=trades)`                     | 템플릿 즉시 반환 |
+| "매수 몇 번 했어?"           | `get_db_data(type=trades_detail)`              | LLM 자연어 응답  |
+| "포트폴리오 분석해줘"        | `get_db_data(type=portfolio)`                  | 템플릿 즉시 반환 |
+| "삼성전자 수익률 알려줘"     | `get_db_data(type=portfolio_detail)`           | LLM 자연어 응답  |
+| "오늘 한국 증시 어때?"       | `get_market_summary(type=korea)`               | 템플릿 즉시 반환 |
+| "미국 장 어떻게 됐어?"       | `get_market_summary(type=us)`                  | 템플릿 즉시 반환 |
+| "삼성전자 뉴스 알려줘"       | `get_market_summary(type=stock_news)`          | 템플릿 즉시 반환 |
+| "삼성전자 현재가 얼마야?"    | `get_market_data(type=price)`                  | LLM 자연어 응답  |
+| "삼성전자 10주 매수해줘"     | `execute_order(type=buy)`                      | 템플릿 즉시 반환 |
+| "달러로 환전해줘"            | `execute_order(type=exchange)`                 | 템플릿 즉시 반환 |

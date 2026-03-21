@@ -6,7 +6,7 @@ from app.db.oracle import fetch_one, fetch_all
 from app.tools.get_market_data import get_market_data
 
 def get_db_data(
-    type: Literal["balance", "trades", "portfolio"],
+    type: Literal["balance", "trades", "portfolio", "balance_detail", "trades_detail", "portfolio_detail"],
     user_context: dict,
     limit: int = 3,
 ) -> dict:
@@ -14,7 +14,8 @@ def get_db_data(
     내부 DB에서 사용자 데이터를 조회합니다.
 
     Args:
-        type: "balance" | "trades" | "portfolio"
+        type: 전체 조회(템플릿 반환) — "balance" | "trades" | "portfolio"
+              세부 질문(LLM 답변) — "balance_detail" | "trades_detail" | "portfolio_detail"
         user_context: 세션에서 주입된 {"user_id": ..., "account_id": ...}
         limit: trades 조회 시 최근 건수 (기본값 3)
 
@@ -23,11 +24,11 @@ def get_db_data(
     """
     account_id = user_context["account_id"]
 
-    if type == "balance":
+    if type in ("balance", "balance_detail"):
         return _query_balance(account_id)
-    elif type == "trades":
+    elif type in ("trades", "trades_detail"):
         return _query_trades(account_id, limit)
-    elif type == "portfolio":
+    elif type in ("portfolio", "portfolio_detail"):
         return _query_portfolio(account_id)
     else:
         raise ValueError(f"Unknown type: {type}")
@@ -232,7 +233,7 @@ def _query_portfolio(account_id: str) -> dict:
     stock_map:  dict[str, float] = {}  # 종목별 실시간 평가액
     domestic_cost  = 0.0
     overseas_cost  = 0.0
-    domestic_value = 0.0       # 국내주식 실시간 평가액 (KRW)
+    domestic_stock_value = 0.0       # 국내주식 실시간 평가액 (KRW)
     overseas_value_usd = 0.0   # 해외주식 실시간 평가액 (USD)
     stock_returns: list[dict] = []
 
@@ -255,7 +256,7 @@ def _query_portfolio(account_id: str) -> dict:
             current_value_krw = current_value * usdkrw if market_type != "domestic" else current_value
 
             if market_type == "domestic":
-                domestic_value += current_value
+                domestic_stock_value += current_value
             else:
                 overseas_value_usd += current_value
 
@@ -274,8 +275,8 @@ def _query_portfolio(account_id: str) -> dict:
     overseas_value_krw = round(overseas_value_usd * usdkrw, 0)
 
     # 실시간 총평가금액
-    current_total_krw = domestic_value + overseas_value_krw + cash_krw + round(cash_usd * usdkrw, 0)
-    current_total_usd = round((domestic_value + cash_krw) / usdkrw, 2) + overseas_value_usd + cash_usd if usdkrw > 0 else 0.0
+    current_total_krw = domestic_stock_value + overseas_value_krw + cash_krw + round(cash_usd * usdkrw, 0)
+    current_total_usd = round((domestic_stock_value + cash_krw) / usdkrw, 2) + overseas_value_usd + cash_usd if usdkrw > 0 else 0.0
 
     # 실시간 평가액 기준 섹터/종목 집중도
     total_value_for_weight = sum(sector_map.values()) or 1
@@ -345,7 +346,7 @@ def _query_portfolio(account_id: str) -> dict:
         "current_total_usd": current_total_usd,
         "usdkrw":            usdkrw,
         # 국내/해외 평가액 & 매수금액
-        "domestic_value":     domestic_value,
+        "domestic_stock_value":     domestic_stock_value,
         "domestic_cost":      domestic_cost,
         "overseas_value_usd": overseas_value_usd,
         "overseas_value_krw": overseas_value_krw,
@@ -373,8 +374,9 @@ def _query_portfolio(account_id: str) -> dict:
         "recovery_needed":  recovery_needed,
         "volatility":       volatility,
         # 종목별 손익
-        "best_stock":  best_stock,
-        "worst_stock": worst_stock,
+        "best_stock":    best_stock,
+        "worst_stock":   worst_stock,
+        "stock_returns": stock_returns,
         # 거래 통계
         "total_trades":  int(total_trades or 0),
         "buy_count":     int(buy_count    or 0),
