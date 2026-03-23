@@ -5,6 +5,8 @@ from typing import Literal
 import requests
 from datetime import date as date_type
 
+VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
+
 
 # 시세 조회, 차트, 랭킹, 지수, 환율 등 시장 데이터 조회를 위한 도구 함수
 def get_market_data(type: str, **kwargs):
@@ -20,14 +22,18 @@ def get_market_data(type: str, **kwargs):
     elif type == "period_chart":
         return _fetch_period_chart(
             kwargs.get("stock_code"),
+            kwargs.get("period"),
             kwargs.get("start_date"),
             kwargs.get("end_date"),
+    
         )
     elif type == "ranking":
-        return _fetch_ranking(kwargs.get("market"), kwargs.get("ranking_type"))
+        return _fetch_ranking(kwargs.get("type"), kwargs.get("market"))
 
     elif type == "exchange":
         return _fetch_exchange(kwargs.get("currency_pair"))
+    elif type=="index":
+        return _fetch_index()
 
     else:
         raise ValueError(f"Unknown type: {type}")
@@ -97,11 +103,25 @@ def _fetch_chart(stock_code: str | None, market: str | None) -> dict:
     )
 
 #종목 기간별 차트(일/주/월/년)
-def _fetch_period_chart(stock_code: str, start_date: str, end_date: str) -> dict:
+def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date: str | None = None) -> dict:
+    if not stock_code:
+        return {"error": "stock_code is required"}
+    if not start_date:
+        return {"error": "start_date is required"}
+    if not end_date:
+        return {"error": "end_date is required"}
+
+    normalized_period = (period or "DAILY").upper()
+    if normalized_period not in VALID_CHART_PERIODS:
+        return {
+            "error": "invalid period",
+            "message": f"period must be one of {sorted(VALID_CHART_PERIODS)}",
+        }
+
     return _call_spring_api(
         f"/api/market/stocks/{stock_code}/chart",
         {
-            "period": "DAILY",
+            "period": normalized_period,
             "startDate": start_date,
             "endDate": end_date
         }
@@ -117,45 +137,17 @@ def _fetch_daily(stock_code: str, date: str) -> dict:
 
 # ── ranking ───────────────────────────────────────────────────────────────────
 
-_MOCK_RANKINGS: dict[str, list[dict]] = {
-    "volume": [
-        {"rank": 1, "stock_name": "삼성전자",  "value": 15_000_000},
-        {"rank": 2, "stock_name": "POSCO홀딩스","value":  9_800_000},
-        {"rank": 3, "stock_name": "SK하이닉스","value":  5_000_000},
-    ],
-    "change_rate": [
-        {"rank": 1, "stock_name": "에코프로",  "value": 8.7},
-        {"rank": 2, "stock_name": "포스코DX",  "value": 7.3},
-        {"rank": 3, "stock_name": "삼성SDI",   "value": 5.1},
-    ],
-    "foreign_buy": [
-        {"rank": 1, "stock_name": "삼성전자",  "value": 3_200_000_000},
-        {"rank": 2, "stock_name": "SK하이닉스","value": 1_500_000_000},
-        {"rank": 3, "stock_name": "LG에너지솔루션","value": 800_000_000},
-    ],
-}
-
-def _fetch_ranking(market: str | None, ranking_type: str | None) -> dict:
-    # TODO: LS증권 API t1463/t1464(국내)/해외랭킹 API 호출로 교체
-    items = _MOCK_RANKINGS.get(ranking_type or "volume", [])
-    return {
-        "ranking_type": ranking_type,
-        "market": market,
-        "items": items,
-    }
-
+def _fetch_ranking(type:str, market:str) -> dict:
+   
+    return _call_spring_api(
+        "/api/market/stocks/ranking",
+        {"type": type, "market": market}
+    )
 
 # ── index ─────────────────────────────────────────────────────────────────────
 
-_MOCK_INDEXES = {
-    "KOSPI":  {"current": 2_650.3, "change":  12.5, "change_rate":  0.47},
-    "NASDAQ": {"current": 18_350.2,"change": -45.8, "change_rate": -0.25},
-}
-
-def _fetch_index(index_code: str | None) -> dict:
-    # TODO: LS증권 API t1511(국내지수)/해외지수 API 호출로 교체
-    base = _MOCK_INDEXES.get(index_code or "KOSPI", {"current": 0, "change": 0, "change_rate": 0.0})
-    return {"index_code": index_code, **base}
+def _fetch_index():
+    return _call_spring_api("/api/market/indices")
 
 
 # ── exchange ──────────────────────────────────────────────────────────────────

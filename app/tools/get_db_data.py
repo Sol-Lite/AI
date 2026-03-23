@@ -4,7 +4,7 @@
 from typing import Literal
 from app.db.oracle import fetch_one, fetch_all
 from app.tools.get_market_data import get_market_data
-
+import requests
 def get_db_data(
     type: Literal["balance", "trades", "portfolio", "balance_detail", "trades_detail", "portfolio_detail"],
     user_context: dict,
@@ -33,38 +33,57 @@ def get_db_data(
     else:
         raise ValueError(f"Unknown type: {type}")
 
+SPRING_BASE_URL = "http://localhost:8080"
+
+def _call_spring_api(path: str, params: dict | None = None):
+    try:
+        url = f"{SPRING_BASE_URL}{path}"
+        res = requests.get(url, params=params, timeout=3)
+        res.raise_for_status()
+        return res.json()
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "SPRING_API_ERROR",
+            "message": str(e)
+        }
+
+
 
 # ── balance: 잔고 ──────────────────────────────────────────────────────────────────
+# def _query_balance(account_id: str) -> dict:
+#     sql = """
+#         SELECT
+#             cb.currency_code,
+#             SUM(cb.available_amount) AS available_amount,
+#             SUM(cb.total_amount) AS total_amount
+#         FROM cash_balances cb
+#         WHERE cb.account_id = :account_id
+#         GROUP BY cb.currency_code
+#     """
+
+#     rows = fetch_all(sql, {"account_id": account_id}) or []
+
+#     # 기본값 세팅
+#     result = {
+#         "krw_available": 0,
+#         "krw_total": 0,
+#         "usd_available": 0,
+#         "usd_total": 0,
+#         "total_eval": 0,
+#     }
+#     for currency_code, available, total in rows:
+#         ccy = (currency_code or "").strip().upper()
+#         if ccy == "KRW":
+#             result["krw_available"] = float(available or 0)
+#             result["krw_total"] = float(total or 0)
+#         elif ccy == "USD":
+#             result["usd_available"] = float(available or 0)
+#             result["usd_total"] = float(total or 0)
+#     return result
+
 def _query_balance(account_id: str) -> dict:
-    sql = """
-        SELECT
-            cb.currency_code,
-            SUM(cb.available_amount) AS available_amount,
-            SUM(cb.total_amount) AS total_amount
-        FROM cash_balances cb
-        WHERE cb.account_id = :account_id
-        GROUP BY cb.currency_code
-    """
-
-    rows = fetch_all(sql, {"account_id": account_id}) or []
-
-    # 기본값 세팅
-    result = {
-        "krw_available": 0,
-        "krw_total": 0,
-        "usd_available": 0,
-        "usd_total": 0,
-        "total_eval": 0,
-    }
-    for currency_code, available, total in rows:
-        ccy = (currency_code or "").strip().upper()
-        if ccy == "KRW":
-            result["krw_available"] = float(available or 0)
-            result["krw_total"] = float(total or 0)
-        elif ccy == "USD":
-            result["usd_available"] = float(available or 0)
-            result["usd_total"] = float(total or 0)
-    return result
+    return _call_spring_api("/api/balance/cash")
 
 # ── trades: 거래내역 ───────────────────────────────────────────────────────────────────
 def _query_trades(account_id: str, limit: int) -> dict:
