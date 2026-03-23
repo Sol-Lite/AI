@@ -303,6 +303,11 @@ def main():
             print(f" {res['error']}", end="")
         print()
 
+        # 챗봇 답변 출력
+        if res.get("reply"):
+            print(f"     💬 답변: {res['reply'][:300]}"
+                  + ("..." if len(res.get("reply","")) > 300 else ""))
+
         results.append({**case, **res})
 
     # ── 요약 ──────────────────────────────────────────────────────────────────
