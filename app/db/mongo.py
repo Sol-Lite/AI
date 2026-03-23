@@ -24,3 +24,7 @@ def get_news_collection():
 def get_sollite_news_collection():
     client = get_mongo_client()
     return client["sollite"]["news"]
+
+def get_sollite_stock_news_collection():
+    client = get_mongo_client()
+    return client["sollite"]["stock_news"]
