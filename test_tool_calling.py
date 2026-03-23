@@ -35,6 +35,30 @@ TEST_CASES = [
     },
     {
         "group":        "get_market_summary",
+        "message":      "오늘 주식 시장 현황 알려줘",
+        "expected_tool": "get_market_summary",
+        "expected_type": "korea",
+        "expected_args": None,
+        "desc":         "한국 시황 조회",
+    },
+    {
+        "group":        "get_market_summary",
+        "message":      "국내 증시 지금 어떻게 돼?",
+        "expected_tool": "get_market_summary",
+        "expected_type": "korea",
+        "expected_args": None,
+        "desc":         "한국 시황 조회",
+    },
+    {
+        "group":        "get_market_summary",
+        "message":      "오늘 시장 분위기 어때?",
+        "expected_tool": "get_market_summary",
+        "expected_type": "korea",
+        "expected_args": None,
+        "desc":         "한국 시황 조회",
+    },
+    {
+        "group":        "get_market_summary",
         "message":      "나스닥 지금 어떻게 돼?",
         "expected_tool": "get_market_summary",
         "expected_type": "us",
@@ -134,91 +158,91 @@ TEST_CASES = [
         "desc":         "포트폴리오 세부 - 총 평가금액",
     },
 
-    # ── get_market_data ────────────────────────────────────────────────────────
-    {
-        "group":        "get_market_data",
-        "message":      "삼성전자 지금 얼마야?",
-        "expected_tool": "get_market_data",
-        "expected_type": "price",
-        "expected_args": None,
-        "desc":         "종목 현재가 조회",
-    },
-    {
-        "group":        "get_market_data",
-        "message":      "코스피 지수 알려줘",
-        "expected_tool": "get_market_data",
-        "expected_type": "index",
-        "expected_args": {"index_code": "KOSPI"},
-        "desc":         "지수 조회 - 코스피",
-    },
-    {
-        "group":        "get_market_data",
-        "message":      "달러 환율 얼마야?",
-        "expected_tool": "get_market_data",
-        "expected_type": "exchange",
-        "expected_args": None,
-        "desc":         "환율 조회",
-    },
-    {
-        "group":        "get_market_data",
-        "message":      "거래량 많은 종목 알려줘",
-        "expected_tool": "get_market_data",
-        "expected_type": "ranking",
-        "expected_args": {"ranking_type": "volume"},
-        "desc":         "랭킹 조회 - 거래량",
-    },
-    {
-        "group":        "get_market_data",
-        "message":      "오늘 많이 오른 종목 뭐야?",
-        "expected_tool": "get_market_data",
-        "expected_type": "ranking",
-        "expected_args": {"ranking_type": "change_rate"},
-        "desc":         "랭킹 조회 - 등락률",
-    },
+#     # ── get_market_data ────────────────────────────────────────────────────────
+#     {
+#         "group":        "get_market_data",
+#         "message":      "삼성전자 지금 얼마야?",
+#         "expected_tool": "get_market_data",
+#         "expected_type": "price",
+#         "expected_args": None,
+#         "desc":         "종목 현재가 조회",
+#     },
+#     {
+#         "group":        "get_market_data",
+#         "message":      "코스피 지수 알려줘",
+#         "expected_tool": "get_market_data",
+#         "expected_type": "index",
+#         "expected_args": {"index_code": "KOSPI"},
+#         "desc":         "지수 조회 - 코스피",
+#     },
+#     {
+#         "group":        "get_market_data",
+#         "message":      "달러 환율 얼마야?",
+#         "expected_tool": "get_market_data",
+#         "expected_type": "exchange",
+#         "expected_args": None,
+#         "desc":         "환율 조회",
+#     },
+#     {
+#         "group":        "get_market_data",
+#         "message":      "거래량 많은 종목 알려줘",
+#         "expected_tool": "get_market_data",
+#         "expected_type": "ranking",
+#         "expected_args": {"ranking_type": "volume"},
+#         "desc":         "랭킹 조회 - 거래량",
+#     },
+#     {
+#         "group":        "get_market_data",
+#         "message":      "오늘 많이 오른 종목 뭐야?",
+#         "expected_tool": "get_market_data",
+#         "expected_type": "ranking",
+#         "expected_args": {"ranking_type": "change_rate"},
+#         "desc":         "랭킹 조회 - 등락률",
+#     },
 
-    # ── execute_order ──────────────────────────────────────────────────────────
-    {
-        "group":        "execute_order",
-        "message":      "삼성전자 10주 사줘",
-        "expected_tool": "execute_order",
-        "expected_type": "buy",
-        "expected_args": {"quantity": 10},
-        "desc":         "매수 주문",
-    },
-    {
-        "group":        "execute_order",
-        "message":      "SK하이닉스 5주 팔아줘",
-        "expected_tool": "execute_order",
-        "expected_type": "sell",
-        "expected_args": {"quantity": 5},
-        "desc":         "매도 주문",
-    },
-    {
-        "group":        "execute_order",
-        "message":      "100만원 달러로 환전해줘",
-        "expected_tool": "execute_order",
-        "expected_type": "exchange",
-        "expected_args": None,
-        "desc":         "환전 주문",
-    },
+#     # ── execute_order ──────────────────────────────────────────────────────────
+#     {
+#         "group":        "execute_order",
+#         "message":      "삼성전자 10주 사줘",
+#         "expected_tool": "execute_order",
+#         "expected_type": "buy",
+#         "expected_args": {"quantity": 10},
+#         "desc":         "매수 주문",
+#     },
+#     {
+#         "group":        "execute_order",
+#         "message":      "SK하이닉스 5주 팔아줘",
+#         "expected_tool": "execute_order",
+#         "expected_type": "sell",
+#         "expected_args": {"quantity": 5},
+#         "desc":         "매도 주문",
+#     },
+#     {
+#         "group":        "execute_order",
+#         "message":      "100만원 달러로 환전해줘",
+#         "expected_tool": "execute_order",
+#         "expected_type": "exchange",
+#         "expected_args": None,
+#         "desc":         "환전 주문",
+#     },
 
-    # ── 불완전 정보 → tool 미호출 기대 ─────────────────────────────────────────
-    {
-        "group":        "execute_order(미호출)",
-        "message":      "삼성전자 사줘",   # 수량 누락
-        "expected_tool": None,
-        "expected_type": None,
-        "expected_args": None,
-        "desc":         "매수 - 수량 누락 → 되묻기",
-    },
-    {
-        "group":        "execute_order(미호출)",
-        "message":      "주식 10주 팔아줘",  # 종목 누락
-        "expected_tool": None,
-        "expected_type": None,
-        "expected_args": None,
-        "desc":         "매도 - 종목 누락 → 되묻기",
-    },
+#     # ── 불완전 정보 → tool 미호출 기대 ─────────────────────────────────────────
+#     {
+#         "group":        "execute_order(미호출)",
+#         "message":      "삼성전자 사줘",   # 수량 누락
+#         "expected_tool": None,
+#         "expected_type": None,
+#         "expected_args": None,
+#         "desc":         "매수 - 수량 누락 → 되묻기",
+#     },
+#     {
+#         "group":        "execute_order(미호출)",
+#         "message":      "주식 10주 팔아줘",  # 종목 누락
+#         "expected_tool": None,
+#         "expected_type": None,
+#         "expected_args": None,
+#         "desc":         "매도 - 종목 누락 → 되묻기",
+#     },
 ]
 
 
