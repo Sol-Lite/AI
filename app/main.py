@@ -26,8 +26,8 @@ def get_user_context(credentials: HTTPAuthorizationCredentials = Depends(_bearer
 
     # TODO: jwt.decode(token, SECRET_KEY, algorithms=["HS256"]) 로 교체
     return {
-        "user_id":    "user-001",
-        "account_id": "acc-001",
+        "user_id":    1,
+        "account_id": 1,
     }
 
 

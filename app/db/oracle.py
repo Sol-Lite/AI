@@ -8,6 +8,7 @@ def get_oracle_connection():
         user=ORACLE_USER,
         password=ORACLE_PASSWORD,
         dsn=ORACLE_DSN,
+        ssl_server_dn_match=False,
     )
 
 
