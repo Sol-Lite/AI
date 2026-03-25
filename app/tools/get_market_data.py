@@ -62,10 +62,7 @@ def _fetch_price(stock_code: str | None, market: str | None) -> dict:
 
     price_data = _call_spring_api(
         f"/api/market/stocks/{stock_code}/price",
-        {
-            "stockCode": stock_code,
-            "market": market,
-        },
+        {"stockCode": stock_code},
     )
     if price_data.get("error"):
         return price_data
