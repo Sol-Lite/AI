@@ -44,13 +44,14 @@ TOOLS = [
                 "properties": {
                     "type": {
                         "type": "string",
-                        "enum": ["balance", "trades", "portfolio", "balance_detail", "trades_detail", "portfolio_detail"],
+                        "enum": ["balance", "trades", "portfolio"],
                         "description": (
-                            "balance/trades/portfolio: 전체 조회 → 포맷된 리포트 반환. "
-                            "balance_detail/trades_detail/portfolio_detail: 세부 질문 → LLM이 자연어로 답변."
+                            "balance: 원화/달러 잔고 조회. "
+                            "trades: 거래내역 조회. "
+                            "portfolio: 포트폴리오 분석 조회."
                         ),
                     },
-                    "limit": {"type": "integer", "description": "trades/trades_detail 조회 건수 (기본 3)"},
+                    "limit": {"type": "integer", "description": "trades 조회 건수 (기본 3)"},
                 },
                 "required": ["type"],
             },
@@ -104,11 +105,11 @@ _TOOL_DISPATCH = {
     "execute_order":      execute_order,
 }
 
-# (tool_name, type) → 템플릿 함수. 등록된 경우 LLM 대신 템플릿으로 직접 반환.
+# (tool_name, type) → 템플릿 함수
 _TEMPLATE_DISPATCH: dict[tuple[str, str], callable] = {
-    ("get_db_data", "balance"):        format_balance,
-    ("get_db_data", "trades"):         format_trades,
-    ("get_db_data", "portfolio"):      format_portfolio,
+    ("get_db_data", "balance"):           format_balance,
+    ("get_db_data", "trades"):            format_trades,
+    ("get_db_data", "portfolio"):         format_portfolio,
     ("get_market_summary", "korea"):      format_korea_summary,
     ("get_market_summary", "us"):         format_us_summary,
     ("get_market_summary", "stock_news"): format_stock_news,
@@ -116,6 +117,10 @@ _TEMPLATE_DISPATCH: dict[tuple[str, str], callable] = {
     ("execute_order", "sell"):            format_order,
     ("execute_order", "exchange"):        format_order,
 }
+
+# get_db_data는 템플릿 포맷 후 LLM에 전달해 자연어 답변 생성
+# 나머지(market_summary, execute_order)는 템플릿을 그대로 반환
+_DB_TOOLS = {"get_db_data"}
 
 
 # ── 시장 시간 컨텍스트 ─────────────────────────────────────────────────────────
@@ -182,51 +187,32 @@ def chat(user_message: str, user_context: dict) -> str:
                 "  ※ 특정 시장을 언급하지 않은 모호한 질문('시황', '뉴스 알려줘', '장 어때')은\n"
                 "     어떤 시장인지 되물으세요. get_market_summary를 호출하지 마세요.\n\n"
 
-                "■ get_db_data — 사용자 계좌·거래내역·포트폴리오 조회\n\n"
+                "■ get_db_data — 사용자 계좌·거래내역·포트폴리오 조회\n"
+                "  도구 결과가 반환되면 리포트를 직접 읽고 사용자 질문에 바로 답변하세요.\n"
+                "  전체 내역 요청(보여줘/알려줘)은 리포트 전체를 출력하고,\n"
+                "  특정 항목 질문(얼마야/몇 번/어때)은 해당 수치만 골라 간결하게 답변하세요.\n\n"
 
-                "  ※ _detail 사용 기준: 전체 리포트가 아닌 리포트 내 일부 정보만 답변에 필요할 때.\n\n"
+                "  ▷ balance — 트리거: 잔고, 계좌, 달러 잔고, 원화 잔고, 주문 가능, 출금 가능, 총 자산\n"
+                "    리포트 포함 항목: 원화 총잔고, 원화 주문/출금 가능, 달러 총잔고, 달러 주문/출금 가능\n"
+                "    ※ 주문 가능 = 출금 가능 (동일 필드). 주식 평가금액은 포함되지 않음.\n\n"
 
-                "  ▷ balance       — 트리거: 잔고 보여줘, 잔고 알려줘, 잔고 확인, 계좌잔고, 계좌\n"
-                "                    반환 필드: krw_total(원화총잔고), krw_available(원화주문/출금가능),\n"
-                "                               usd_total(달러총잔고), usd_available(달러주문/출금가능)\n"
-                "                    ※ 주문 가능 = 출금 가능 (같은 available 필드)\n"
-                "                    ※ 주식 평가금액은 포함되지 않음 (현금 잔고만)\n\n"
+                "  ▷ trades — 트리거: 거래내역, 거래이력, 내가 뭐 샀어, 내가 뭐 팔았어, 매수 이력,\n"
+                "              매도 이력, 거래 몇 번, 매수 몇 번, 매도 몇 번, 최근에 뭐 샀어,\n"
+                "              제일 많이 산 종목, [종목명] 거래내역 있어\n"
+                "    리포트 포함 항목: 총 거래 횟수(매수/매도), 최근 N건 거래 리스트(종목·방향·가격·수량·일시)\n"
+                "    ※ 특정 종목 필터링 불가. recent 리스트에서 해당 종목 확인 후 없으면 안내.\n\n"
 
-                "  ▷ balance_detail — 트리거: 잔고 얼마야, 달러 잔고, 달러 얼마나 있어, 원화 잔고,\n"
-                "                     달러 있어, 총 자산, 주문 가능 금액, 출금 가능 금액\n"
-                "                    (위 필드 중 일부 항목만 답변에 필요할 때)\n\n"
-
-                "  ▷ trades        — 트리거: 거래내역 보여줘, 거래내역 알려줘, 거래이력, 거래 기록,\n"
-                "                     내가 뭐 샀어, 내가 뭐 팔았어, 매수 이력, 매도 이력\n"
-                "                    반환 필드: total(총거래횟수), buy_count, sell_count,\n"
-                "                               recent(최근 N건 리스트: stock_name·side·price·quantity·executed_at)\n"
-                "                    ※ 특정 종목 필터링 불가. recent 리스트에 있는 종목만 확인 가능.\n\n"
-
-                "  ▷ trades_detail  — 트리거: 거래 몇 번, 총 거래 횟수, 매수 몇 번, 매도 몇 번,\n"
-                "                     최근에 뭐 샀어, 최근 매수, 제일 많이 산 종목,\n"
-                "                     [종목명] 거래내역 있어, 오늘 거래, 이번달 거래\n"
-                "                    (횟수·집계·최근 거래 확인 등 일부 정보만 필요할 때)\n"
-                "    ※ '거래 몇 번 했어', '매수/매도 몇 번' → 반드시 trades_detail\n"
-                "    ※ '[종목명] 거래내역 있어?' → trades_detail 호출 후 recent 리스트에서 해당 종목 확인.\n"
-                "       recent에 없으면 '최근 거래내역에서 확인되지 않습니다'라고 안내.\n\n"
-
-                "  ▷ portfolio     — 트리거: 포트폴리오 분석해줘, 포트폴리오 보여줘, 투자 현황\n"
-                "                    반환 필드: current_total_krw(총평가금액KRW), return_1m/3m/6m(기간수익률),\n"
-                "                               best_stock/worst_stock(최고/최저종목), stock_returns(종목별수익률리스트),\n"
-                "                               mdd(최대낙폭), volatility(변동성), win_count/sell_count(승률계산용),\n"
-                "                               sector_concentration(섹터집중도), domestic_ratio/foreign_ratio(국내외비율),\n"
-                "                               unrealized_pnl(평가손익), realized_pnl(실현손익)\n\n"
-
-                "  ▷ portfolio_detail — 트리거: 수익률, 평가금액, 총 평가금액, 지금 얼마 벌었어,\n"
-                "                       손익, MDD, 최대 낙폭, 변동성, 승률, 리스크, 집중도, 비중,\n"
-                "                       섹터, 수익 종목, 손실 종목, 국내/해외 비율,\n"
-                "                       제일 많이 오른 종목, 제일 많이 내린 종목, 손실 난 종목,\n"
-                "                       위험한가요, 포트폴리오 위험\n"
-                "                    (위 필드 중 일부 항목만 답변에 필요할 때)\n"
-                "    ※ 총 평가금액 → current_total_krw 사용\n"
-                "    ※ 승률 → win_count / sell_count × 100\n"
-                "    ※ 제일 많이 오른 종목 → best_stock 필드 (내 보유 종목 기준), ranking 사용 금지\n"
-                "    ※ 단독 '제일 많이 오른 종목이 뭐야?' 질문 = 내 포트폴리오 기준 → portfolio_detail\n\n"
+                "  ▷ portfolio — 트리거: 포트폴리오, 투자 현황, 수익률, 평가금액, 총 평가금액,\n"
+                "                MDD, 최대 낙폭, 변동성, 승률, 리스크, 위험, 집중도, 섹터 비중,\n"
+                "                국내/해외 비율, 제일 많이 오른 종목, 제일 많이 내린 종목, 손실 종목,\n"
+                "                [종목명] 수익률, [종목명] 얼마 벌었어, [종목명] 손익\n"
+                "    리포트 포함 항목: 총평가금액, 기간별 수익률(1/3/6개월), 평가/실현손익,\n"
+                "                     최고/최저 종목, 종목별 수익률, 섹터·종목 집중도,\n"
+                "                     국내/해외 비율, MDD, 변동성, 거래 승률, 손익비\n"
+                "    ※ 승률 = win_count / sell_count × 100\n"
+                "    ※ '제일 많이 오른 종목' 단독 질문 = 내 포트폴리오 기준 → portfolio 호출 (ranking 금지)\n"
+                "    ※ '[종목명] 수익률 어떻게 돼?' = 내가 보유한 해당 종목의 수익률 → portfolio 호출\n"
+                "       (get_market_data 사용 금지 — 시장 차트와 혼동하지 말 것)\n\n"
 
                 "■ get_market_data — 실시간 시세·지수·랭킹·환율 조회\n\n"
 
@@ -239,7 +225,8 @@ def chat(user_message: str, user_context: dict) -> str:
 
                 "  ▷ period_chart — 트리거: 차트, 일봉, 주봉, 월봉, 연봉, N개월 차트, 기간 흐름\n"
                 "    ※ 분봉 차트는 현재 미지원입니다.\n"
-                "    ※ 종목 없으면 '어떤 종목의 차트를 보여드릴까요?'라고 되물으세요.\n\n"
+                "    ※ 종목 없으면 '어떤 종목의 차트를 보여드릴까요?'라고 되물으세요.\n"
+                "    ※ '[종목명] 수익률'은 period_chart가 아닌 get_db_data(portfolio) 사용.\n\n"
 
                 "  ▷ ranking — 트리거: 순위, 많이 거래되는, 많이 오른, 많이 내린, 급등, 급락, 대장주\n"
                 "    ranking_type 결정 규칙 (반드시 지정):\n"
@@ -272,6 +259,13 @@ def chat(user_message: str, user_context: dict) -> str:
                 "■ tool_calls 없음 (자유 질의)\n"
                 "  위 도구 중 어느 것도 해당하지 않으면 자세한 질문을 하도록 유도하세요.\n\n"
 
+                "■ 금융 답변 규칙\n"
+                "  수익/이익이 날 때: '플러스', '수익', '상승', '+N%' — '양성' 사용 금지\n"
+                "  손실이 날 때: '마이너스', '손실', '하락', '-N%' — '음성' 사용 금지\n"
+                "  숫자 표현: 금액은 '원' 또는 'USD' 단위를 붙여 표기\n"
+                "  주관적 평가 금지: '우수하다', '좋다', '나쁘다', '훌륭하다', '걱정된다' 등\n"
+                "  데이터를 있는 그대로 전달하고 평가·해석·의견은 추가하지 마세요.\n\n"
+
                 "■ 중요: 도구를 호출할 때는 반드시 function call 형식(tool_calls)을 사용하세요.\n"
                 "  절대로 JSON 텍스트를 직접 출력하지 마세요. 예: {\"name\": ...} 형태로 출력 금지."
             ),
@@ -289,8 +283,8 @@ def chat(user_message: str, user_context: dict) -> str:
             return msg.get("content", "")
 
         # 도구 실행 — user_context는 LLM이 채운 fn_args와 별도로 주입
-        template_replies = []
-        tool_results = []
+        direct_replies = []   # 템플릿 그대로 반환 (market_summary, execute_order)
+        tool_results   = []   # LLM에 전달할 결과 (get_db_data 포맷, get_market_data raw)
         for tc in tool_calls:
             fn_name = tc["function"]["name"]
             fn_args = tc["function"].get("arguments", {})
@@ -301,15 +295,28 @@ def chat(user_message: str, user_context: dict) -> str:
 
             formatter = _TEMPLATE_DISPATCH.get((fn_name, fn_args.get("type")))
             if formatter:
-                template_replies.append(formatter(result))
+                formatted = formatter(result)
+                if fn_name in _DB_TOOLS:
+                    # DB 데이터는 포맷 후 LLM에 전달 → LLM이 질문에 맞게 자연어 답변
+                    tool_results.append(
+                        f"[조회 결과]\n{formatted}\n\n"
+                        f"위 데이터를 바탕으로 사용자의 질문 '{user_message}'에 직접 답변하세요. "
+                        f"전체 내역이 필요한 질문은 리포트 전체를, 특정 항목만 묻는 질문은 해당 항목만 간결하게 답변하세요."
+                    )
+                else:
+                    # 시황/주문 결과는 템플릿 그대로 반환
+                    direct_replies.append(formatted)
             else:
-                tool_results.append(json.dumps(result, ensure_ascii=False))
+                if isinstance(result, dict) and result.get("error"):
+                    tool_results.append(f"[오류] 데이터를 불러오지 못했습니다: {result.get('message', result.get('error'))}")
+                else:
+                    tool_results.append(json.dumps(result, ensure_ascii=False))
 
-        # 템플릿이 있는 결과는 바로 반환
-        if template_replies:
-            return "\n\n".join(template_replies)
+        # 직접 반환할 템플릿이 있으면 즉시 반환
+        if direct_replies:
+            return "\n\n".join(direct_replies)
 
-        # 템플릿 없는 결과는 LLM에 다시 전달
+        # 나머지는 LLM에 전달해 자연어 답변 생성
         for content in tool_results:
             messages.append({"role": "tool", "content": content})
 
