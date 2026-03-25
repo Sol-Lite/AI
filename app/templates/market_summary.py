@@ -80,7 +80,7 @@ def format_korea_summary(data: dict) -> str:
             if up_list:
                 lines.append(f"  {label}  ▲ " + "  ·  ".join(up_list))
             if down_list:
-                lines.append(f"  {"":6}  ▼ " + "  ·  ".join(down_list))
+                lines.append(" " * 6 + "  ▼ " + "  ·  ".join(down_list))
 
     lines.append(_SEP)
     return "\n".join(lines)
