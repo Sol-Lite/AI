@@ -3,9 +3,15 @@ Tool Calling 테스트 공통 유틸리티
 - run_test : spy 패턴으로 tool 선택 검증 + 타이밍 측정
 - run_group: 케이스 목록 실행 후 결과 출력
 - print_summary: 그룹별/전체 요약 출력
+- save_xlsx : 결과를 xlsx 파일로 저장
 """
 import time
+import os
+from datetime import datetime
 from unittest.mock import patch
+import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 import app.services.llm as llm_module
 
 USER_CONTEXT = {"user_id": 1, "account_id": 1}
@@ -171,3 +177,141 @@ def print_summary(results: list[dict]) -> None:
     print(f"{'─'*60}")
     total = len(results)
     print(f"  전체: PASS {total_pass}/{total}  FAIL {total_fail}  ERROR {total_error}")
+
+    path = save_xlsx(results)
+    print(f"\n  xlsx 저장 완료: {path}")
+
+
+def save_xlsx(results: list[dict], out_dir: str = "test_results") -> str:
+    """테스트 결과를 xlsx로 저장하고 파일 경로를 반환합니다."""
+    os.makedirs(out_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(out_dir, f"test_result_{timestamp}.xlsx")
+
+    wb = openpyxl.Workbook()
+
+    # ── 스타일 정의 ──────────────────────────────────────────────
+    fill_pass    = PatternFill("solid", fgColor="C6EFCE")   # 연초록
+    fill_fail    = PatternFill("solid", fgColor="FFC7CE")   # 연빨강
+    fill_error   = PatternFill("solid", fgColor="FFEB9C")   # 연노랑
+    fill_header  = PatternFill("solid", fgColor="4472C4")   # 파랑
+    fill_group   = PatternFill("solid", fgColor="D9E1F2")   # 연파랑
+    font_header  = Font(bold=True, color="FFFFFF")
+    font_group   = Font(bold=True)
+    font_fail    = Font(bold=True, color="9C0006")
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    align_left   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    HEADERS = [
+        "그룹", "설명", "질문 메시지",
+        "기대 도구", "기대 타입",
+        "실제 도구", "실제 타입",
+        "결과",
+        "도구선택(ms)", "답변생성(ms)", "합계(ms)",
+        "LLM 답변",
+    ]
+    COL_WIDTHS = [28, 22, 30, 16, 18, 16, 18, 8, 13, 13, 10, 60]
+
+    # ── 시트 1: 전체 결과 ────────────────────────────────────────
+    ws = wb.active
+    ws.title = "전체 결과"
+
+    # 헤더
+    for col, (h, w) in enumerate(zip(HEADERS, COL_WIDTHS), start=1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill   = fill_header
+        cell.font   = font_header
+        cell.alignment = align_center
+        cell.border = border
+        ws.column_dimensions[get_column_letter(col)].width = w
+    ws.row_dimensions[1].height = 20
+    ws.freeze_panes = "A2"
+
+    # 데이터 행
+    groups: dict[str, list] = {}
+    for r in results:
+        groups.setdefault(r["group"], []).append(r)
+
+    row_idx = 2
+    for group, items in groups.items():
+        for item in items:
+            status = item["status"]
+            values = [
+                item.get("group", ""),
+                item.get("desc", ""),
+                item.get("message", ""),
+                item.get("expected_tool") or "미호출",
+                item.get("expected_type") or "-",
+                item.get("actual_tool")   or "미호출",
+                item.get("actual_type")   or "-",
+                status,
+                item.get("time_to_tool_ms")   or "-",
+                item.get("time_to_answer_ms") or "-",
+                item.get("total_ms")          or "-",
+                item.get("reply", "")[:500],  # 500자 제한
+            ]
+            for col, val in enumerate(values, start=1):
+                cell = ws.cell(row=row_idx, column=col, value=val)
+                cell.alignment = align_left if col in (1, 2, 3, 12) else align_center
+                cell.border = border
+                if status == "PASS":
+                    cell.fill = fill_pass
+                elif status == "FAIL":
+                    cell.fill = fill_fail
+                    if col in (6, 7, 8):
+                        cell.font = font_fail
+                elif status == "ERROR":
+                    cell.fill = fill_error
+            ws.row_dimensions[row_idx].height = 40
+            row_idx += 1
+
+    # ── 시트 2: 그룹별 요약 ─────────────────────────────────────
+    ws2 = wb.create_sheet("그룹별 요약")
+    sum_headers = ["그룹", "전체", "PASS", "FAIL", "ERROR", "도구선택 평균(ms)", "답변생성 평균(ms)"]
+    sum_widths  = [32, 8, 8, 8, 8, 18, 18]
+
+    for col, (h, w) in enumerate(zip(sum_headers, sum_widths), start=1):
+        cell = ws2.cell(row=1, column=col, value=h)
+        cell.fill   = fill_header
+        cell.font   = font_header
+        cell.alignment = align_center
+        cell.border = border
+        ws2.column_dimensions[get_column_letter(col)].width = w
+
+    row_idx2 = 2
+    total_p = total_f = total_e = 0
+    for group, items in groups.items():
+        p = sum(1 for i in items if i["status"] == "PASS")
+        f = sum(1 for i in items if i["status"] == "FAIL")
+        e = sum(1 for i in items if i["status"] == "ERROR")
+        total_p += p; total_f += f; total_e += e
+
+        tool_times   = [i["time_to_tool_ms"]   for i in items if i["time_to_tool_ms"]   is not None]
+        answer_times = [i["time_to_answer_ms"]  for i in items if i["time_to_answer_ms"] is not None]
+        avg_tool   = round(sum(tool_times)   / len(tool_times))   if tool_times   else "-"
+        avg_answer = round(sum(answer_times) / len(answer_times)) if answer_times else "-"
+
+        row_vals = [group, len(items), p, f, e, avg_tool, avg_answer]
+        for col, val in enumerate(row_vals, start=1):
+            cell = ws2.cell(row=row_idx2, column=col, value=val)
+            cell.alignment = align_center if col != 1 else align_left
+            cell.border = border
+            cell.fill = fill_group
+            if col == 1:
+                cell.font = font_group
+        ws2.row_dimensions[row_idx2].height = 18
+        row_idx2 += 1
+
+    # 합계 행
+    total_row = ["합계", len(results), total_p, total_f, total_e, "-", "-"]
+    for col, val in enumerate(total_row, start=1):
+        cell = ws2.cell(row=row_idx2, column=col, value=val)
+        cell.font   = Font(bold=True)
+        cell.alignment = align_center if col != 1 else align_left
+        cell.border = border
+        cell.fill   = PatternFill("solid", fgColor="BDD7EE")
+
+    wb.save(path)
+    return path

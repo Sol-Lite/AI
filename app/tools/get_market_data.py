@@ -13,8 +13,8 @@ def get_market_data(type: str, **kwargs):
     if type == "price":
         return _fetch_price(kwargs.get("stock_code"), kwargs.get("market"))
 
-    elif type == "chart":
-        return _fetch_chart(kwargs.get("stock_code"), kwargs.get("market"))
+    # elif type == "chart":
+    #     return _fetch_chart(kwargs.get("stock_code"), kwargs.get("market"))
 
     elif type == "daily":
         return _fetch_daily(kwargs.get("stock_code"), kwargs.get("date"))
@@ -93,14 +93,14 @@ def _fetch_price(stock_code: str | None, market: str | None) -> dict:
 
 
 #종목 분봉 차트
-def _fetch_chart(stock_code: str | None, market: str | None) -> dict:
-    if not stock_code:
-        return {"error": "stock_code is required"}
+# def _fetch_chart(stock_code: str | None, market: str | None) -> dict:
+#     if not stock_code:
+#         return {"error": "stock_code is required"}
 
-    return _call_spring_api(
-        f"/api/market/stocks/{stock_code}/minute-chart",
-        {"ncnt": 1}  # 1분봉
-    )
+#     return _call_spring_api(
+#         f"/api/market/stocks/{stock_code}/minute-chart",
+#         {"ncnt": 1}  # 1분봉
+#     )
 
 #종목 기간별 차트(일/주/월/년)
 def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date: str | None = None) -> dict:
