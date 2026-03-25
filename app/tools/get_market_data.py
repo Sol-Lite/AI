@@ -29,6 +29,7 @@ def get_market_data(type: str, **kwargs):
         )
     elif type == "ranking":
         return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
+        return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
 
     elif type == "exchange":
         return _fetch_exchange(kwargs.get("currency_pair"))
@@ -137,11 +138,21 @@ def _fetch_daily(stock_code: str, date: str) -> dict:
 
 # ── ranking ───────────────────────────────────────────────────────────────────
 
-def _fetch_ranking(ranking_type: str, market: str) -> dict:
-    return _call_spring_api(
+_VALID_RANKING_TYPES = {"trading-volume", "trading-value", "rising", "falling", "market-cap"}
+
+
+def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:  # noqa: ARG001
+    is_default = ranking_type not in _VALID_RANKING_TYPES
+    api_type = ranking_type if not is_default else "trading-volume"
+    stocks = _call_spring_api(
         "/api/market/stocks/ranking",
-        {"type": ranking_type or "trading-value", "market": market or "all"}
+        {"type": type, "market": market}
     )
+    return {
+        "type":       api_type,
+        "is_default": is_default,
+        "stocks":     stocks if isinstance(stocks, list) else [],
+    }
 
 # ── index ─────────────────────────────────────────────────────────────────────
 

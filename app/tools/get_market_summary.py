@@ -3,6 +3,7 @@
 """
 from typing import Literal
 from app.db.mongo import get_sollite_news_collection, get_sollite_stock_news_collection
+from app.db.oracle import resolve_stock_code
 
 
 def get_market_summary(
@@ -113,14 +114,17 @@ def _fetch_stock_news_summary(stock_code: str | None) -> dict:
             "error": "stock_code가 필요합니다. (예: 국내 005930, 해외 AAPL.O)",
         }
 
-    # 종목명이 한글로 그대로 넘어온 경우 방어
+    # 종목 코드 형식이 아닌 경우 → instruments 테이블에서 종목명으로 코드 조회
     if not _is_valid_stock_code(stock_code):
-        return {
-            "stock_code": stock_code,
-            "stock_name": None,
-            "news": [],
-            "error": f"'{stock_code}'는 유효한 종목 코드가 아닙니다. (예: 국내 005930, 해외 AAPL.O)",
-        }
+        resolved = resolve_stock_code(stock_code)
+        if not resolved:
+            return {
+                "stock_code": stock_code,
+                "stock_name": None,
+                "news": [],
+                "error": f"'{stock_code}'에 해당하는 종목을 찾을 수 없습니다. 종목명을 정확히 입력해 주세요.",
+            }
+        stock_code = resolved
 
     col = get_sollite_stock_news_collection()
     docs = list(

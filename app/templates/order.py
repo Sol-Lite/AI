@@ -37,9 +37,9 @@ def _format_stock_order(data: dict) -> str:
     order_id     = data.get("order_id", "-")
     stock_name   = data.get("stock_name", "-")
     order_type   = data.get("type", "")
-    quantity     = data.get("quantity", 0)
-    price        = data.get("price", 0)
-    total_amount = data.get("total_amount", 0)
+    quantity     = int(data.get("quantity") or 0)
+    price        = float(data.get("price") or 0)
+    total_amount = float(data.get("total_amount") or 0)
 
     type_label = "매수" if order_type == "buy" else "매도"
 

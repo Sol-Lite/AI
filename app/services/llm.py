@@ -2,6 +2,7 @@
 llama tool calling 처리 — Ollama /api/chat 엔드포인트 사용
 """
 import json
+import re
 import httpx
 from datetime import datetime, timezone, timedelta
 from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
@@ -11,6 +12,7 @@ from app.templates.trades import format_trades
 from app.templates.portfolio import format_portfolio
 from app.templates.market_summary import format_korea_summary, format_us_summary, format_stock_news
 from app.templates.order import format_order
+from app.templates.ranking import format_ranking
 
 # ── Tool 스키마 정의 (llama3.1 tool_use 포맷) ──────────────────────────────────
 
@@ -69,6 +71,8 @@ TOOLS = [
                     "stock_code":    {"type": "string"},
                     "market":        {"type": "string", "enum": ["all", "kospi", "kosdaq"]},
                     "ranking_type":  {"type": "string", "enum": ["trading-volume", "trading-value", "rising", "falling", "market-cap"]},
+                    "market":        {"type": "string", "enum": ["domestic", "overseas"]},
+                    "ranking_type":  {"type": "string", "enum": ["trading-volume", "trading-value", "rising", "falling", "market-cap"]},
                     "index_code":    {"type": "string", "enum": ["KOSPI", "NASDAQ"]},
                     "currency_pair": {"type": "string", "enum": ["USDKRW", "EURKRW"]},
                 },
@@ -116,11 +120,90 @@ _TEMPLATE_DISPATCH: dict[tuple[str, str], callable] = {
     ("execute_order", "buy"):             format_order,
     ("execute_order", "sell"):            format_order,
     ("execute_order", "exchange"):        format_order,
+    ("get_market_data", "ranking"):       format_ranking,
 }
 
 # get_db_data는 템플릿 포맷 후 LLM에 전달해 자연어 답변 생성
 # 나머지(market_summary, execute_order)는 템플릿을 그대로 반환
 _DB_TOOLS = {"get_db_data"}
+_KNOWN_TOOLS = {"get_market_summary", "get_db_data", "get_market_data", "execute_order"}
+
+# Llama 3.1 버그: {"type": "korea"} 대신 {"korea": null} 형태로 넘기는 경우 정규화
+_TOOL_TYPE_ENUMS: dict[str, set[str]] = {
+    "get_market_summary": {"korea", "us", "stock_news"},
+    "get_db_data":        {"balance", "trades", "portfolio"},
+    "get_market_data":    {"price", "daily", "period_chart", "ranking", "index", "exchange"},
+    "execute_order":      {"buy", "sell", "exchange"},
+}
+
+
+def _normalize_fn_args(fn_name: str, fn_args: dict) -> dict:
+    """
+    LLM이 type 값을 key로 직접 넘기는 경우를 정규화합니다.
+    예: {"korea": null} → {"type": "korea"}
+    """
+    if "type" not in fn_args:
+        # ranking_type이 있으면 get_market_data type="ranking"으로 추론
+        if fn_name == "get_market_data" and "ranking_type" in fn_args:
+            return {"type": "ranking", **fn_args}
+        # enum 값이 key로 직접 넘어온 경우 {"korea": null} → {"type": "korea"}
+        enums = _TOOL_TYPE_ENUMS.get(fn_name, set())
+        for key in fn_args:
+            if key in enums:
+                return {"type": key, **{k: v for k, v in fn_args.items() if k != key}}
+    return fn_args
+
+
+# ── LLM 호출 전 사전 차단 패턴 ────────────────────────────────────────────────
+
+# 종목명 없이 매수/매도 동사만 있는 패턴
+_RE_BARE_BUY  = re.compile(r'^(사줘?|매수해?줘?|매수)$')
+_RE_BARE_SELL = re.compile(r'^(팔아?줘?|매도해?줘?|매도)$')
+# "주식"·"어떤 주식" 처럼 비구체적 종목 + 매수/매도 동사
+_RE_GENERIC_ORDER = re.compile(r'^(주식|어떤\s*주식|어떤\s*종목)\s*\d*\s*주?\s*(사줘?|팔아?줘?|매수해?줘?|매도해?줘?|매수|매도)')
+# 환전 의도이지만 숫자가 없는 패턴
+_RE_EXCHANGE_INTENT = re.compile(r'(환전|바꿔|바꿔줘)')
+# 섹터/테마 키워드 (종목명이 아닌 것들)
+_SECTOR_KEYWORDS = {
+    "바이오", "반도체", "제약", "화학", "자동차", "it", "금융", "에너지",
+    "헬스케어", "게임", "엔터", "식품", "건설", "철강", "전기차", "배터리",
+    "2차전지", "항공", "조선", "보험", "은행", "유통", "통신", "방산",
+}
+_NEWS_KEYWORDS = {"뉴스", "소식", "기사", "이슈"}
+
+
+def _early_return(user_message: str) -> str | None:
+    """
+    LLM 없이 즉시 응답이 가능한 패턴을 감지합니다.
+    Llama 3.1이 시스템 프롬프트를 무시하는 경우를 Python에서 직접 차단합니다.
+    """
+    msg = user_message.strip()
+    if _RE_BARE_BUY.match(msg):
+        return "어떤 종목을 매수할까요? 종목명을 알려주세요."
+    if _RE_BARE_SELL.match(msg):
+        return "어떤 종목을 매도할까요? 종목명을 알려주세요."
+    if _RE_GENERIC_ORDER.match(msg):
+        return "어떤 종목을 말씀하시나요? 종목명을 알려주세요."
+    if _RE_EXCHANGE_INTENT.search(msg) and not re.search(r'\d', msg):
+        return "얼마를 환전할까요? 금액을 알려주세요."
+    msg_lower = msg.lower()
+    if any(kw in msg_lower for kw in _NEWS_KEYWORDS):
+        # 시장 키워드도 섹터 키워드도 없는 단독 뉴스 요청 → 종목 되묻기
+        _MARKET_KEYWORDS = {"한국", "국내", "국장", "미국", "미장", "나스닥", "뉴욕", "s&p", "다우"}
+        has_market = any(kw in msg_lower for kw in _MARKET_KEYWORDS)
+        has_sector = any(kw in msg_lower for kw in _SECTOR_KEYWORDS)
+        if not has_market and not has_sector and len(msg) <= 10:
+            return (
+                "어떤 종목의 뉴스가 궁금하신가요? 종목명을 알려주세요.\n"
+                "(시황 뉴스를 원하신다면 '한국 시황' 또는 '미국 시황'이라고 말씀해 주세요.)"
+            )
+        # 섹터/테마 뉴스 요청 (특정 종목명 없이 섹터 키워드만 있는 경우)
+        if has_sector and not has_market:
+            return (
+                "섹터/테마별 뉴스는 제공하지 않습니다.\n"
+                "특정 종목의 뉴스를 조회할 수 있어요. 어떤 종목의 뉴스가 궁금하신가요?"
+            )
+    return None
 
 
 # ── 시장 시간 컨텍스트 ─────────────────────────────────────────────────────────
@@ -161,6 +244,11 @@ def chat(user_message: str, user_context: dict) -> str:
         user_context: 세션에서 추출한 {"user_id": ..., "account_id": ...}
                       LLM 스키마에는 노출되지 않으며, 도구 호출 시 코드가 직접 주입합니다.
     """
+    # LLM 호출 전 사전 차단: 시스템 프롬프트로 제어 불가한 패턴을 Python에서 직접 처리
+    early = _early_return(user_message)
+    if early:
+        return early
+
     market_ctx = _get_market_context()
     messages = [
         {
@@ -168,10 +256,8 @@ def chat(user_message: str, user_context: dict) -> str:
             "content": (
                 "당신은 투자 어시스턴트입니다. 한국어로 간결하게 답변하세요.\n\n"
                 f"[현재 시장 정보]\n{market_ctx}\n\n"
-
                 "■ get_market_summary — 시황/뉴스 요약\n"
                 "  트리거 키워드: 시황, 이슈, 뉴스, 요약, 소식, 분위기, 현황, 어때, 어떻게 됐어\n\n"
-
                 "  ▷ korea — 트리거: 한국, 국장, 국내, 한국 시장, 한국 증시\n"
                 "    응답 시 [현재 시장 정보]의 '한국 시황 기준' 문구를 함께 제시하세요.\n\n"
 
@@ -230,9 +316,11 @@ def chat(user_message: str, user_context: dict) -> str:
 
                 "  ▷ ranking — 트리거: 순위, 많이 거래되는, 많이 오른, 많이 내린, 급등, 급락, 대장주\n"
                 "    ranking_type 결정 규칙 (반드시 지정):\n"
-                "      volume     : 거래량, 많이 거래되는, 거래대금, 거래량 순위, 시가총액 순위\n"
-                "      change_rate: 오른/내린/급등/급락/상한가/하한가/등락률/상승률/하락률\n"
-                "      foreign_buy: 외국인 사는/매수/순매수, 외국인이 많이 파는/순매도\n\n"
+                "      trading-volume: 거래량, 많이 거래되는, 거래량 순위\n"
+                "      trading-value : 거래대금, 거래대금 순위\n"
+                "      rising        : 많이 오른/급등/상한가/상승률/오름\n"
+                "      falling       : 많이 내린/급락/하한가/하락률/내림\n"
+                "      market-cap    : 시가총액, 시총 순위\n\n"
 
                 "  ▷ index — 트리거: 코스피, 코스닥, 코스피200, 다우, 다우존스, S&P500, 에스앤피,\n"
                 "              닛케이, 항셍, 지수, 나스닥 지수, 나스닥 얼마야\n"
@@ -244,17 +332,38 @@ def chat(user_message: str, user_context: dict) -> str:
 
                 "■ execute_order — 매수·매도·환전 실행\n\n"
 
-                "  ▷ buy/sell — 반드시 아래 두 가지가 모두 있어야 호출:\n"
-                "      (1) 종목 이름 또는 종목 코드\n"
-                "      (2) 실행 키워드: 사줘/사/매수/팔아줘/팔아/매도/팔자/사자/살게요/팔게요\n"
-                "    하나라도 없으면 절대 호출하지 말고 누락 정보를 되물으세요.\n\n"
+                "  ▷ buy/sell 호출 판단:\n"
+                "    [호출 조건] 메시지에 구체적인 종목명 또는 종목 코드가 있을 때만 호출\n"
+                "    [호출 금지] 종목명/코드가 없으면 절대 호출하지 말고 종목을 되물으세요\n"
+                "    필수: stock_code (종목명 또는 코드)\n"
+                "    선택: quantity(정수, 메시지에서 추출), price(정수, 사용자가 명시한 경우만)\n"
+                "    금지 예시:\n"
+                "      '사줘'           → 종목 없음 → 호출 금지 → '어떤 종목을 매수할까요?'\n"
+                "      '주식 10주 팔아줘' → '주식'은 종목명 아님 → 호출 금지\n"
+                "      '어떤 주식 사줘'  → '어떤 주식'은 종목명 아님 → 호출 금지\n"
+                "    허용 예시:\n"
+                "      '삼성전자 10주 사줘'  → stock_code=삼성전자, quantity=10 → 호출\n"
+                "      'SK하이닉스 5주 매수' → stock_code=SK하이닉스, quantity=5 → 호출\n"
+                "      '삼성전자 사줘'       → stock_code=삼성전자, quantity 없음 → 호출\n"
+                "    ※ 수량이 있으면 반드시 quantity에 정수로 추출: '10주' → quantity=10\n\n"
 
-                "  ▷ exchange — 반드시 아래 세 가지가 모두 있어야 호출:\n"
-                "      (1) 기준통화 (예: 원화, KRW, 달러)\n"
-                "      (2) 표시통화 (예: 달러로, 원화로, USD)\n"
-                "      (3) 실행 키워드: 환전해줘/바꿔줘/충전해줘\n"
-                "    ※ '환전하면 얼마야', '달러 얼마야' 같은 조회 질문은 get_market_data(exchange).\n"
-                "    하나라도 없으면 절대 호출하지 말고 누락 정보를 되물으세요.\n\n"
+                "  ▷ exchange 호출 판단:\n"
+                "    [호출 조건] 아래 네 가지가 모두 있을 때만 호출:\n"
+                "      (1) from_currency: 출발 통화 (예: KRW, USD)\n"
+                "      (2) to_currency: 도착 통화 (예: USD, KRW)\n"
+                "      (3) amount: 메시지에 명시된 구체적인 금액 숫자\n"
+                "      (4) 실행 키워드: 환전해줘/바꿔줘/충전해줘\n"
+                "    [호출 금지] 출발 통화 또는 도착 통화 둘 중에 하나라도 메시지에 없으면 절대 호출하지 말고 출발 통화랑 도착 통화 다 입력해달라고 되물으세요\n"
+                "    금지 예시:\n"
+                "      '달러로 환전해줘'  → 출발 통화 없음 → 호출 금지\n"
+                "      '달러로 바꿔줘'    → 출발 통화 없음 → 호출 금지\n"
+                "      '원화로 환전해줘'  → 출발 통화 없음 → 호출 금지\n"
+                "    허용 예시:\n"
+                "      '달러로 환전해줘 100만원'  → amount=1000000, from=KRW, to=USD → 호출\n"
+                "      '50만원 달러로 바꿔줘'     → amount=500000, from=KRW, to=USD → 호출\n"
+                "      '100달러 원화로 환전해줘'  → amount=100, from=USD, to=KRW → 호출\n"
+                "    ※ amount는 메시지에 명확한 숫자가 없으면 임의로 추정·생성 금지\n"
+                "    ※ '환전하면 얼마야', '달러 얼마야' → get_market_data(exchange) 사용\n\n"
 
                 "■ tool_calls 없음 (자유 질의)\n"
                 "  위 도구 중 어느 것도 해당하지 않으면 자세한 질문을 하도록 유도하세요.\n\n"
@@ -266,8 +375,11 @@ def chat(user_message: str, user_context: dict) -> str:
                 "  주관적 평가 금지: '우수하다', '좋다', '나쁘다', '훌륭하다', '걱정된다' 등\n"
                 "  데이터를 있는 그대로 전달하고 평가·해석·의견은 추가하지 마세요.\n\n"
 
-                "■ 중요: 도구를 호출할 때는 반드시 function call 형식(tool_calls)을 사용하세요.\n"
-                "  절대로 JSON 텍스트를 직접 출력하지 마세요. 예: {\"name\": ...} 형태로 출력 금지."
+                "■ 중요: 도구 호출 방식\n"
+                "  도구를 호출할 때는 반드시 tool_calls 형식만 사용하세요.\n"
+                "  content 필드에 JSON을 출력하는 것은 도구 호출이 아닙니다 — 절대 금지.\n"
+                "  금지 예시: {\"name\": \"execute_order\", \"arguments\": {...}} 형태로 출력 금지\n"
+                "  도구 호출이 필요하면 tool_calls로만 전달하고 content는 비워두세요."
             ),
         },
         {"role": "user", "content": user_message},
@@ -279,8 +391,13 @@ def chat(user_message: str, user_context: dict) -> str:
         messages.append(msg)
 
         tool_calls = msg.get("tool_calls") or []
+        # Llama 3.1 버그: tool_calls 없이 content에 JSON 텍스트로 tool call 출력하는 경우 파싱
         if not tool_calls:
-            return msg.get("content", "")
+            extracted = _extract_json_tool_call(msg.get("content", ""))
+            if extracted:
+                tool_calls = extracted
+            else:
+                return msg.get("content", "")
 
         # 도구 실행 — user_context는 LLM이 채운 fn_args와 별도로 주입
         direct_replies = []   # 템플릿 그대로 반환 (market_summary, execute_order)
@@ -291,10 +408,28 @@ def chat(user_message: str, user_context: dict) -> str:
             if isinstance(fn_args, str):
                 fn_args = json.loads(fn_args)
 
+            # Llama 3.1 버그: {"korea": null} → {"type": "korea"} 정규화
+            fn_args = _normalize_fn_args(fn_name, fn_args)
+
+            # execute_order 사전 검증: LLM이 hallucinate한 인자로 실제 주문이 나가는 것을 차단
+            if fn_name == "execute_order":
+                guard_msg = _validate_execute_order(fn_args, user_message)
+                if guard_msg:
+                    direct_replies.append(guard_msg)
+                    continue
+
             result = _dispatch(fn_name, fn_args, user_context)
 
             formatter = _TEMPLATE_DISPATCH.get((fn_name, fn_args.get("type")))
-            if formatter:
+            # error dict는 formatter에 넘기지 않고 별도 처리
+            # DB 툴이 아닌 경우(시황/주문)는 에러도 직접 반환 → LLM hallucination 방지
+            if isinstance(result, dict) and result.get("error"):
+                err_msg = result.get("message", result.get("error", "알 수 없는 오류"))
+                if fn_name in _DB_TOOLS:
+                    tool_results.append(f"[오류] {err_msg}")
+                else:
+                    direct_replies.append(f"조회에 실패했습니다: {err_msg}")
+            elif formatter:
                 formatted = formatter(result)
                 if fn_name in _DB_TOOLS:
                     # DB 데이터는 포맷 후 LLM에 전달 → LLM이 질문에 맞게 자연어 답변
@@ -307,10 +442,7 @@ def chat(user_message: str, user_context: dict) -> str:
                     # 시황/주문 결과는 템플릿 그대로 반환
                     direct_replies.append(formatted)
             else:
-                if isinstance(result, dict) and result.get("error"):
-                    tool_results.append(f"[오류] 데이터를 불러오지 못했습니다: {result.get('message', result.get('error'))}")
-                else:
-                    tool_results.append(json.dumps(result, ensure_ascii=False))
+                tool_results.append(json.dumps(result, ensure_ascii=False))
 
         # 직접 반환할 템플릿이 있으면 즉시 반환
         if direct_replies:
@@ -319,6 +451,68 @@ def chat(user_message: str, user_context: dict) -> str:
         # 나머지는 LLM에 전달해 자연어 답변 생성
         for content in tool_results:
             messages.append({"role": "tool", "content": content})
+
+
+_GENERIC_STOCK_TERMS = {"주식", "어떤 주식", "어떤주식", "종목", "어떤 종목", "어떤종목"}
+
+
+def _validate_execute_order(fn_args: dict, user_message: str) -> str | None:
+    """
+    execute_order 인자가 user_message와 일치하는지 검증합니다.
+    LLM이 hallucinate한 종목명/금액으로 실제 주문이 실행되는 것을 차단합니다.
+    문제가 있으면 사용자에게 보낼 안내 문구를, 정상이면 None을 반환합니다.
+    """
+    order_type = fn_args.get("type")
+
+    if order_type in ("buy", "sell"):
+        stock_code = (fn_args.get("stock_code") or "").strip()
+        action = "매수" if order_type == "buy" else "매도"
+        # 종목명이 없거나 비구체적인 단어인 경우
+        if not stock_code or stock_code in _GENERIC_STOCK_TERMS:
+            return f"어떤 종목을 {action}할까요? 종목명을 알려주세요."
+        # 종목명이 원본 메시지에 전혀 등장하지 않으면 hallucination으로 간주
+        # 단, 6자리 숫자 종목 코드가 메시지에 있으면 통과
+        if stock_code not in user_message and not re.search(r'\d{6}', user_message):
+            return f"어떤 종목을 {action}할까요? 종목명을 알려주세요."
+
+    elif order_type == "exchange":
+        # 메시지에 숫자가 전혀 없으면 amount가 hallucinate된 것으로 간주
+        if not re.search(r'\d', user_message):
+            return "얼마를 환전할까요? 금액을 알려주세요."
+
+    return None
+
+
+def _extract_json_tool_call(content: str) -> list[dict] | None:
+    """
+    Llama 3.1 버그 대응: content에 JSON 텍스트로 tool call을 출력할 때 파싱합니다.
+    {"name": "...", "parameters": {...}} 또는 {"name": "...", "arguments": {...}} 형태를 감지합니다.
+    """
+    if not content:
+        return None
+
+    # Llama가 Go 스타일 nil을 출력하는 경우 JSON null로 치환
+    content = content.replace("<nil>", "null")
+
+    # JSON 블록 추출 (```json ... ``` 또는 { ... } 형태)
+    candidates = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}', content, re.DOTALL)
+    # 더 긴 JSON도 처리하기 위해 전체 content도 시도
+    candidates.append(content.strip())
+
+    for raw in candidates:
+        try:
+            obj = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+        name = obj.get("name")
+        if name not in _KNOWN_TOOLS:
+            continue
+
+        args = obj.get("parameters") or obj.get("arguments") or obj.get("args") or {}
+        return [{"function": {"name": name, "arguments": args}}]
+
+    return None
 
 
 def _call_ollama(messages: list[dict]) -> dict:
