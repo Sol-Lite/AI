@@ -67,8 +67,8 @@ TOOLS = [
                 "properties": {
                     "type":          {"type": "string", "enum": ["price", "daily", "period_chart", "ranking", "index", "exchange"]},
                     "stock_code":    {"type": "string"},
-                    "market":        {"type": "string", "enum": ["domestic", "overseas"]},
-                    "ranking_type":  {"type": "string", "enum": ["volume", "change_rate", "foreign_buy"]},
+                    "market":        {"type": "string", "enum": ["all", "kospi", "kosdaq"]},
+                    "ranking_type":  {"type": "string", "enum": ["trading-volume", "trading-value", "rising", "falling", "market-cap"]},
                     "index_code":    {"type": "string", "enum": ["KOSPI", "NASDAQ"]},
                     "currency_pair": {"type": "string", "enum": ["USDKRW", "EURKRW"]},
                 },
@@ -322,7 +322,7 @@ def chat(user_message: str, user_context: dict) -> str:
 
 
 def _call_ollama(messages: list[dict]) -> dict:
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=600) as client:
         resp = client.post(
             f"{OLLAMA_BASE_URL}/api/chat",
             json={
