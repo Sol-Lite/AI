@@ -1,15 +1,51 @@
 """
 도구 3: get_market_data - LS증권 API 연동 (실시간 시장 데이터: 시세/차트/랭킹/지수/환율)
 """
-from typing import Literal
+import re
 import requests
 from datetime import date as date_type
+from app.db.oracle import resolve_stock_code
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
+
+# stock_code가 필요한 type 목록
+_STOCK_CODE_TYPES = {"price", "daily", "period_chart"}
+
+
+def _is_valid_stock_code(code: str) -> bool:
+    """국내(6자리 숫자) 또는 해외(영문+숫자, 점 허용) 종목 코드 형식 검증"""
+    return bool(re.match(r'^[A-Z0-9]{1,10}(\.[A-Z0-9]{1,2})?$', code))
+
+
+def _resolve(stock_code: str | None) -> tuple[str | None, dict | None]:
+    """
+    종목 코드를 검증하고 필요 시 DB에서 조회합니다.
+    Returns:
+        (resolved_code, None) 정상
+        (None, error_dict)    실패
+    """
+    if not stock_code:
+        return None, {"error": "stock_code is required"}
+    if not _is_valid_stock_code(stock_code):
+        resolved = resolve_stock_code(stock_code)
+        if not resolved:
+            return None, {
+                "error": "not_found",
+                "message": f"'{stock_code}'에 해당하는 종목을 찾을 수 없습니다.",
+            }
+        return resolved, None
+    return stock_code, None
 
 
 # 시세 조회, 차트, 랭킹, 지수, 환율 등 시장 데이터 조회를 위한 도구 함수
 def get_market_data(type: str, **kwargs):
+    # stock_code가 필요한 type은 먼저 종목명 → 코드 변환
+    if type in _STOCK_CODE_TYPES:
+        stock_code, err = _resolve(kwargs.get("stock_code"))
+        if err:
+            return err
+        kwargs = {**kwargs, "stock_code": stock_code}
+
     if type == "price":
         return _fetch_price(kwargs.get("stock_code"), kwargs.get("market"))
 
@@ -25,7 +61,6 @@ def get_market_data(type: str, **kwargs):
             kwargs.get("period"),
             kwargs.get("start_date"),
             kwargs.get("end_date"),
-    
         )
     elif type == "ranking":
         return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
@@ -55,10 +90,7 @@ def _call_spring_api(path: str, params: dict | None = None):
 
 # ── price ─────────────────────────────────────────────────────────────────────
 # 시세 조회 템플릿을 위한 함수 병합
-def _fetch_price(stock_code: str | None, market: str | None) -> dict:
-    if not stock_code:
-        return {"error": "stock_code is required"}
-
+def _fetch_price(stock_code: str, market: str | None) -> dict:
     price_data = _call_spring_api(
         f"/api/market/stocks/{stock_code}/price",
         {
@@ -104,8 +136,6 @@ def _fetch_price(stock_code: str | None, market: str | None) -> dict:
 
 #종목 기간별 차트(일/주/월/년)
 def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date: str | None = None) -> dict:
-    if not stock_code:
-        return {"error": "stock_code is required"}
     if not start_date:
         return {"error": "start_date is required"}
     if not end_date:

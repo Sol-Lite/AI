@@ -13,6 +13,7 @@ from app.templates.portfolio import format_portfolio
 from app.templates.market_summary import format_korea_summary, format_us_summary, format_stock_news
 from app.templates.order import format_order
 from app.templates.ranking import format_ranking
+from app.templates.index import format_index
 
 # ── Tool 스키마 정의 (llama3.1 tool_use 포맷) ──────────────────────────────────
 
@@ -119,6 +120,7 @@ _TEMPLATE_DISPATCH: dict[tuple[str, str], callable] = {
     ("execute_order", "sell"):            format_order,
     ("execute_order", "exchange"):        format_order,
     ("get_market_data", "ranking"):       format_ranking,
+    ("get_market_data", "index"):         format_index,
 }
 
 # get_db_data는 템플릿 포맷 후 LLM에 전달해 자연어 답변 생성
@@ -144,6 +146,9 @@ def _normalize_fn_args(fn_name: str, fn_args: dict) -> dict:
         # ranking_type이 있으면 get_market_data type="ranking"으로 추론
         if fn_name == "get_market_data" and "ranking_type" in fn_args:
             return {"type": "ranking", **fn_args}
+        # index_code가 있으면 get_market_data type="index"로 추론
+        if fn_name == "get_market_data" and "index_code" in fn_args:
+            return {"type": "index", **fn_args}
         # enum 값이 key로 직접 넘어온 경우 {"korea": null} → {"type": "korea"}
         enums = _TOOL_TYPE_ENUMS.get(fn_name, set())
         for key in fn_args:
@@ -168,6 +173,25 @@ _SECTOR_KEYWORDS = {
     "2차전지", "항공", "조선", "보험", "은행", "유통", "통신", "방산",
 }
 _NEWS_KEYWORDS = {"뉴스", "소식", "기사", "이슈"}
+
+# 지수명 목록 (코스피/코스닥/나스닥 등)
+_INDEX_NAMES = {"코스피", "코스닥", "코스피200", "나스닥", "다우존스", "다우", "닛케이", "항셍", "s&p", "에스앤피"}
+# 지수 조회 의도 키워드 ("어때/분위기"와 구분)
+_INDEX_QUERY_WORDS = {"얼마", "지금", "지수", "수치", "몇"}
+
+
+_SUMMARY_WORDS = {"어때", "분위기", "시황", "요약", "현황", "마감"}
+
+
+def _is_index_query(msg: str) -> bool:
+    """코스피/나스닥 등 지수 수치 조회 패턴 감지 (시황 요약 구분)"""
+    msg_lower = msg.lower()
+    matched_count = sum(1 for name in _INDEX_NAMES if name in msg_lower)
+    has_query = any(word in msg_lower for word in _INDEX_QUERY_WORDS)
+    has_summary = any(word in msg_lower for word in _SUMMARY_WORDS)
+    # 지수명 2개 이상 → 명백한 지수 조회 (조회 키워드 없어도 통과)
+    # 지수명 1개 + 조회 키워드 → 지수 조회
+    return (matched_count >= 2 or (matched_count >= 1 and has_query)) and not has_summary
 
 
 def _early_return(user_message: str) -> str | None:
@@ -247,6 +271,13 @@ def chat(user_message: str, user_context: dict) -> str:
     if early:
         return early
 
+    # 지수 수치 조회 패턴은 LLM 라우팅 오류를 우회해 직접 get_market_data(index) 호출
+    if _is_index_query(user_message):
+        result = _dispatch("get_market_data", {"type": "index"}, user_context)
+        if isinstance(result, dict) and result.get("error"):
+            return f"지수 조회에 실패했습니다: {result.get('message', result.get('error'))}"
+        return format_index(result, user_message)
+
     market_ctx = _get_market_context()
     messages = [
         {
@@ -300,7 +331,8 @@ def chat(user_message: str, user_context: dict) -> str:
 
                 "■ get_market_data — 실시간 시세·지수·랭킹·환율 조회\n\n"
 
-                "  ▷ price — 트리거: 주가, 현재가, 지금 얼마, 주가 알려줘\n"
+                "  ▷ price — 트리거: [종목명/종목코드] 주가, 현재가, 지금 얼마, 주가 알려줘\n"
+                "    ※ 반드시 기업 종목(삼성전자, 애플 등)에만 사용. 코스피/코스닥/나스닥 등 지수는 price 금지 → index 사용.\n"
                 "    ※ 종목 없으면 '어떤 종목을 조회할까요?'라고 되물으세요.\n"
                 "    ※ price = 실시간 현재가. 오늘 고가/저가/시가/종가는 daily 사용.\n\n"
 
@@ -321,8 +353,10 @@ def chat(user_message: str, user_context: dict) -> str:
                 "      market-cap    : 시가총액, 시총 순위\n\n"
 
                 "  ▷ index — 트리거: 코스피, 코스닥, 코스피200, 다우, 다우존스, S&P500, 에스앤피,\n"
-                "              닛케이, 항셍, 지수, 나스닥 지수, 나스닥 얼마야\n"
-                "    ※ 지수 수치 조회에만 사용. 시황/분위기는 get_market_summary 사용.\n\n"
+                "              닛케이, 항셍, 지수, 나스닥 지수\n"
+                "    ※ 지수명(코스피/코스닥/나스닥/다우/닛케이 등) + '얼마야·지금·지수·수치' → 반드시 index 호출\n"
+                "    ※ '코스피 코스닥 둘 다 알려줘', '코스피 코스닥 얼마야' 등 복수 지수 질문도 index 호출\n"
+                "    ※ 지수 수치 조회에만 사용. 시황/분위기/어때는 get_market_summary 사용.\n\n"
 
                 "  ▷ exchange — 트리거: 환율, 원달러, 달러 얼마, 유로 환율, 엔화 환율,\n"
                 "                환전하면 얼마야, N달러 원화로 얼마야\n"
