@@ -9,12 +9,16 @@ import time
 import os
 from datetime import datetime
 from unittest.mock import patch
+from dotenv import load_dotenv
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import app.services.llm as llm_module
 
-USER_CONTEXT = {"user_id": 1, "account_id": 1}
+load_dotenv()
+
+_token = os.getenv("TEST_JWT_TOKEN", "")
+USER_CONTEXT = {"user_id": 202, "account_id": 1, "token": _token}
 
 
 def run_test(case: dict) -> dict:

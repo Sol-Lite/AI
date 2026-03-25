@@ -23,7 +23,7 @@ def get_user_context(
     token = credentials.credentials
     user_id = _verify_jwt(token)
     account_id = _fetch_account_id_cached(user_id, token)
-    return {"user_id": user_id, "account_id": account_id}
+    return {"user_id": user_id, "account_id": account_id, "token": token}
 
 
 # ── JWT 검증 ───────────────────────────────────────────────────────────────────

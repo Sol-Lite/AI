@@ -89,6 +89,7 @@ TOOLS = [
                 "properties": {
                     "type":          {"type": "string", "enum": ["buy", "sell", "exchange"]},
                     "stock_code":    {"type": "string"},
+                    "market":        {"type": "string", "enum": ["KOSPI", "KOSDAQ", "NASDAQ"], "description": "종목 시장: 국내 유가증권시장=KOSPI, 국내 코스닥=KOSDAQ, 미국=NASDAQ"},
                     "quantity":      {"type": "integer"},
                     "price":         {"type": "integer", "description": "생략 시 시장가"},
                     "from_currency": {"type": "string"},
@@ -371,8 +372,13 @@ def chat(user_message: str, user_context: dict) -> str:
                 "  ▷ buy/sell 호출 판단:\n"
                 "    [호출 조건] 메시지에 구체적인 종목명 또는 종목 코드가 있을 때만 호출\n"
                 "    [호출 금지] 종목명/코드가 없으면 절대 호출하지 말고 종목을 되물으세요\n"
-                "    필수: stock_code (종목명 또는 코드)\n"
+                "    필수: stock_code (종목명 또는 코드), market\n"
                 "    선택: quantity(정수, 메시지에서 추출), price(정수, 사용자가 명시한 경우만)\n"
+                "    market 결정 규칙:\n"
+                "      KOSPI  : 삼성전자·현대차·LG에너지솔루션 등 유가증권시장 종목\n"
+                "      KOSDAQ : 카카오게임즈·셀트리온헬스케어·에코프로 등 코스닥 종목\n"
+                "      NASDAQ : 애플·엔비디아·테슬라·구글 등 미국 종목\n"
+                "      ※ 종목명만으로 시장 구분이 불확실하면 KOSPI 사용\n"
                 "    금지 예시:\n"
                 "      '사줘'           → 종목 없음 → 호출 금지 → '어떤 종목을 매수할까요?'\n"
                 "      '주식 10주 팔아줘' → '주식'은 종목명 아님 → 호출 금지\n"
