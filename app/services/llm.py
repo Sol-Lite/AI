@@ -70,7 +70,7 @@ TOOLS = [
                 "properties": {
                     "type":          {"type": "string", "enum": ["price", "daily", "period_chart", "ranking", "index", "exchange"]},
                     "stock_code":    {"type": "string"},
-                    "market":        {"type": "string", "enum": ["domestic", "overseas"]},
+                    "market":        {"type": "string", "enum": ["all", "kospi", "kosdaq"]},
                     "ranking_type":  {"type": "string", "enum": ["trading-volume", "trading-value", "rising", "falling", "market-cap"]},
                     "index_code":    {"type": "string", "enum": ["KOSPI", "NASDAQ"]},
                     "currency_pair": {"type": "string", "enum": ["USDKRW", "EURKRW"]},
@@ -350,7 +350,11 @@ def chat(user_message: str, user_context: dict) -> str:
                 "      trading-value : 거래대금, 거래대금 순위\n"
                 "      rising        : 많이 오른/급등/상한가/상승률/오름\n"
                 "      falling       : 많이 내린/급락/하한가/하락률/내림\n"
-                "      market-cap    : 시가총액, 시총 순위\n\n"
+                "      market-cap    : 시가총액, 시총 순위\n"
+                "    market 결정 규칙 (시장 미특정 시 all 사용):\n"
+                "      all    : 전체 (기본값)\n"
+                "      kospi  : 코스피, 유가증권시장\n"
+                "      kosdaq : 코스닥\n\n"
 
                 "  ▷ index — 트리거: 코스피, 코스닥, 코스피200, 다우, 다우존스, S&P500, 에스앤피,\n"
                 "              닛케이, 항셍, 지수, 나스닥 지수\n"
@@ -548,7 +552,7 @@ def _extract_json_tool_call(content: str) -> list[dict] | None:
 
 
 def _call_ollama(messages: list[dict]) -> dict:
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=600) as client:
         resp = client.post(
             f"{OLLAMA_BASE_URL}/api/chat",
             json={

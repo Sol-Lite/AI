@@ -64,6 +64,7 @@ def get_market_data(type: str, **kwargs):
         )
     elif type == "ranking":
         return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
+        return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
 
     elif type == "exchange":
         return _fetch_exchange(kwargs.get("currency_pair"))
@@ -93,10 +94,7 @@ def _call_spring_api(path: str, params: dict | None = None):
 def _fetch_price(stock_code: str, market: str | None) -> dict:
     price_data = _call_spring_api(
         f"/api/market/stocks/{stock_code}/price",
-        {
-            "stockCode": stock_code,
-            "market": market,
-        },
+        {"stockCode": stock_code},
     )
     if price_data.get("error"):
         return price_data
@@ -175,7 +173,7 @@ def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:
     api_type = ranking_type if not is_default else "trading-volume"
     stocks = _call_spring_api(
         "/api/market/stocks/ranking",
-        {"type": api_type, "market": "all"},
+        {"type": type, "market": market}
     )
     return {
         "type":       api_type,
