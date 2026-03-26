@@ -1,5 +1,5 @@
 """
-계좌 관련 응답 템플릿 (잔고)
+잔고
 """
 def format_balance(data: dict) -> str:
     """

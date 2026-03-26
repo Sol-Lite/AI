@@ -1,12 +1,12 @@
 """
-도구 2: get_db_data - 내부 DB 조회 (잔고 / 거래내역 / 포트폴리오 분석)
+get_db_data - 내부 DB 조회 (잔고 / 거래내역 / 포트폴리오 분석)
 """
 from typing import Literal
 from app.db.oracle import fetch_one, fetch_all
-from app.tools.get_market_data import get_market_data
+from AI.app.hardcoding.get_market_data import get_market_data
 import requests
 def get_db_data(
-    type: Literal["balance", "trades", "portfolio", "balance_detail", "trades_detail", "portfolio_detail"],
+    type: Literal[],
     user_context: dict,
     limit: int = 3,
 ) -> dict:
@@ -14,24 +14,15 @@ def get_db_data(
     내부 DB에서 사용자 데이터를 조회합니다.
 
     Args:
-        type: 전체 조회(템플릿 반환) — "balance" | "trades" | "portfolio"
-              세부 질문(LLM 답변) — "balance_detail" | "trades_detail" | "portfolio_detail"
+        type: 
         user_context: 세션에서 주입된 {"user_id": ..., "account_id": ...}
-        limit: trades 조회 시 최근 건수 (기본값 3)
 
     Returns:
         type별 상이한 딕셔너리
     """
     account_id = user_context["account_id"]
 
-    if type in ("balance", "balance_detail"):
-        return _query_balance(account_id)
-    elif type in ("trades", "trades_detail"):
-        return _query_trades(account_id, limit)
-    elif type in ("portfolio", "portfolio_detail"):
-        return _query_portfolio(account_id)
-    else:
-        raise ValueError(f"Unknown type: {type}")
+    _query_portfolio(account_id)
 
 SPRING_BASE_URL = "http://localhost:8080"
 
@@ -47,111 +38,6 @@ def _call_spring_api(path: str, params: dict | None = None):
             "error": "SPRING_API_ERROR",
             "message": str(e)
         }
-
-
-
-# ── balance: 잔고 ──────────────────────────────────────────────────────────────────
-# def _query_balance(account_id: str) -> dict:
-#     sql = """
-#         SELECT
-#             cb.currency_code,
-#             SUM(cb.available_amount) AS available_amount,
-#             SUM(cb.total_amount) AS total_amount
-#         FROM cash_balances cb
-#         WHERE cb.account_id = :account_id
-#         GROUP BY cb.currency_code
-#     """
-
-#     rows = fetch_all(sql, {"account_id": account_id}) or []
-
-#     # 기본값 세팅
-#     result = {
-#         "krw_available": 0,
-#         "krw_total": 0,
-#         "usd_available": 0,
-#         "usd_total": 0,
-#         "total_eval": 0,
-#     }
-#     for currency_code, available, total in rows:
-#         ccy = (currency_code or "").strip().upper()
-#         if ccy == "KRW":
-#             result["krw_available"] = float(available or 0)
-#             result["krw_total"] = float(total or 0)
-#         elif ccy == "USD":
-#             result["usd_available"] = float(available or 0)
-#             result["usd_total"] = float(total or 0)
-#     return result
-
-def _query_balance(account_id: str) -> dict:
-    return _call_spring_api("/api/balance/cash")
-
-# ── trades: 거래내역 ───────────────────────────────────────────────────────────────────
-def _query_trades(account_id: str, limit: int) -> dict:
-
-    cnt_sql = """
-        SELECT
-            COUNT(DISTINCT ex.ORDER_ID)                                             AS total,
-            COUNT(DISTINCT CASE WHEN ex.ORDER_SIDE = 'buy'  THEN ex.ORDER_ID END)  AS buy_count,
-            COUNT(DISTINCT CASE WHEN ex.ORDER_SIDE = 'sell' THEN ex.ORDER_ID END)  AS sell_count
-        FROM executions ex
-        WHERE ex.account_id = :account_id
-    """
-    cnt_row = fetch_one(cnt_sql, {"account_id": account_id}) or (0, 0, 0)
-    total, buy_count, sell_count = cnt_row
-
-    recent_sql = """
-        WITH last_buy AS (
-            SELECT
-                i.STOCK_NAME,
-                ex.ORDER_SIDE,
-                ex.EXECUTION_PRICE,
-                ex.EXECUTION_QUANTITY,
-                ex.EXECUTED_AT
-            FROM executions ex
-                LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
-            WHERE ex.account_id = :account_id
-              AND ex.ORDER_SIDE  = 'buy'
-            ORDER BY ex.EXECUTED_AT DESC
-            FETCH FIRST :limit ROWS ONLY
-        ),
-        last_sell AS (
-            SELECT
-                i.STOCK_NAME,
-                ex.ORDER_SIDE,
-                ex.EXECUTION_PRICE,
-                ex.EXECUTION_QUANTITY,
-                ex.EXECUTED_AT
-            FROM executions ex
-                LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
-            WHERE ex.account_id = :account_id
-              AND ex.ORDER_SIDE  = 'sell'
-            ORDER BY ex.EXECUTED_AT DESC
-            FETCH FIRST :limit ROWS ONLY
-        )
-        SELECT STOCK_NAME, ORDER_SIDE, EXECUTION_PRICE, EXECUTION_QUANTITY, EXECUTED_AT FROM last_buy
-        UNION ALL
-        SELECT STOCK_NAME, ORDER_SIDE, EXECUTION_PRICE, EXECUTION_QUANTITY, EXECUTED_AT FROM last_sell
-        ORDER BY EXECUTED_AT DESC
-    """
-    rows = fetch_all(recent_sql, {"account_id": account_id, "limit": limit})
-    recent = [
-        {
-            "stock_name":  row[0],
-            "side":        row[1],
-            "price":       row[2],
-            "quantity":    row[3],
-            "executed_at": str(row[4]),
-        }
-        for row in rows
-    ]
-
-    return {
-        "total":      total,
-        "buy_count":  buy_count,
-        "sell_count": sell_count,
-        "recent":     recent,
-    }
-
 
 # ── portfolio: 포트폴리오 ─────────────────────────────────────────────────────────────────
 def _query_portfolio(account_id: str) -> dict:
