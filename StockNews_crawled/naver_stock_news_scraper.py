@@ -1,3 +1,4 @@
+import csv
 import os
 import re
 import sys
@@ -16,7 +17,6 @@ from summarizer import summarize_articles
 from bs4 import BeautifulSoup
 from datetime import datetime
 from pymongo import MongoClient
-import openpyxl
 
 # ── MongoDB 연결 ──────────────────────────────────────────────
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
@@ -26,7 +26,7 @@ collection = db[COLLECTION_NAME]
 # 인덱스 (최초 1회, 스키마 기준)
 collection.create_index("news_id", unique=True, sparse=True)
 collection.create_index([("published_at", -1)])
-collection.create_index([("related_stocks.stock_code", 1)])
+collection.create_index([("stock_code", 1)])
 
 
 # ── 본문 전처리 ───────────────────────────────────────────────
@@ -114,29 +114,41 @@ def clean_body(text):
 
 # ── 종목 로드 ─────────────────────────────────────────────────
 def load_kospi200(filepath):
-    wb = openpyxl.load_workbook(filepath)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    headers = rows[0]
-    code_idx = headers.index("종목코드")
-    name_idx = headers.index("종목명")
-    return [
-        {"ticker": str(row[code_idx]).zfill(6), "name": row[name_idx], "market": "KOSPI"}
-        for row in rows[1:] if row[code_idx]
-    ]
+    stocks = []
+    with open(filepath, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            code = str(row["stock_code"]).zfill(6)
+            stocks.append({
+                "ticker": code,
+                "stock_code": code,
+                "stock_name": row["stock_name"],
+                "stock_name_en": "",
+                "market": "KOSPI",
+            })
+    return stocks
 
 
 def load_nasdaq100(filepath):
-    wb = openpyxl.load_workbook(filepath)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    headers = rows[0]
-    sym_idx = headers.index("Symbol")
-    name_idx = headers.index("Name")
-    return [
-        {"ticker": f"{row[sym_idx]}.O", "name": row[name_idx], "market": "NASDAQ"}
-        for row in rows[1:] if row[sym_idx]
-    ]
+    stocks = []
+    with open(filepath, newline="", encoding="utf-8-sig") as f:
+        reader = csv.reader(f)
+        next(reader)  # 1행 메타(표 1) 스킵
+        headers = next(reader)  # 2행 헤더
+        code_idx = headers.index("stock_code")
+        name_idx = headers.index("stock_name")
+        name_en_idx = headers.index("stock_name_en")
+        for row in reader:
+            if not row[code_idx]:
+                continue
+            stocks.append({
+                "ticker": f"{row[code_idx]}.O",  # 네이버증권 NASDAQ 거래소 코드
+                "stock_code": row[code_idx],
+                "stock_name": row[name_idx],
+                "stock_name_en": row[name_en_idx],
+                "market": "NASDAQ",
+            })
+    return stocks
 
 
 # ── 기사 전문 파싱 ────────────────────────────────────────────
@@ -279,9 +291,10 @@ def crawl_stock_news(stock, target=TARGET_PER_STOCK):
                 "thumbnail_url": thumbnail_url,
                 "source": item.get("officeName", ""),
                 "source_url": link,
-                "related_stocks": [
-                    {"stock_code": ticker, "stock_name": stock["name"], "market": stock["market"]}
-                ],
+                "stock_code": stock["stock_code"],
+                "stock_name": stock["stock_name"],
+                "stock_name_en": stock["stock_name_en"],
+                "market": stock["market"],
                 "published_at": datetime.strptime(item["datetime"], "%Y%m%d%H%M")
                                 if item.get("datetime") else datetime.now(),
                 "fetched_at": datetime.now(),
@@ -309,7 +322,7 @@ def run_job(stocks):
         candidates = crawl_stock_news(stock, target=TARGET_PER_STOCK)
 
         if not candidates:
-            print(f"  [{ticker}] {stock['name']} — 새 기사 없음")
+            print(f"  [{ticker}] {stock['stock_name']} — 새 기사 없음")
             time.sleep(0.5)
             continue
 
@@ -317,7 +330,7 @@ def run_job(stocks):
         new_articles = deduplicate(candidates)
 
         if not new_articles:
-            print(f"  [{ticker}] {stock['name']} — 모두 중복")
+            print(f"  [{ticker}] {stock['stock_name']} — 모두 중복")
             time.sleep(0.5)
             continue
 
@@ -326,7 +339,7 @@ def run_job(stocks):
 
         # 4. MongoDB 저장
         collection.insert_many(new_articles)
-        print(f"  [{ticker}] {stock['name']} — {len(new_articles)}건 저장 완료")
+        print(f"  [{ticker}] {stock['stock_name']} — {len(new_articles)}건 저장 완료")
         all_new.extend(new_articles)
 
         time.sleep(0.5)
@@ -337,8 +350,8 @@ def run_job(stocks):
 # ── 메인 ─────────────────────────────────────────────────────
 if __name__ == "__main__":
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    kospi_stocks = load_kospi200(os.path.join(base_dir, "코스피200리스트.xlsx"))
-    nasdaq_stocks = load_nasdaq100(os.path.join(base_dir, "Nasdaq-100.xlsx"))
+    kospi_stocks = load_kospi200(os.path.join(base_dir, "kospi200_targets.csv"))
+    nasdaq_stocks = load_nasdaq100(os.path.join(base_dir, "NASDAQ100.csv"))
     all_stocks = kospi_stocks + nasdaq_stocks
 
     print(f"KOSPI {len(kospi_stocks)}종목 + NASDAQ {len(nasdaq_stocks)}종목 = 총 {len(all_stocks)}종목")
