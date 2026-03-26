@@ -42,8 +42,10 @@
 # main.py
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
-from app.core.auth import get_user_context   # ← 교체
-from app.services.llm import chat
+from typing import Any
+from app.core.auth import get_user_context
+from app.chatbot.rule_router import detect
+from app.chatbot.dispatcher import dispatch
 
 app = FastAPI(title="Investment Chatbot")
 
@@ -54,6 +56,11 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    action: str | None = None
+    # 프론트엔드 액션 파라미터
+    # activate_buy / activate_sell: {"stock_code": str}
+    # activate_exchange: {}
+    action_params: dict[str, Any] | None = None
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -61,5 +68,10 @@ async def chat_endpoint(
     req: ChatRequest,
     user_context: dict = Depends(get_user_context),
 ) -> ChatResponse:
-    reply = chat(req.message, user_context)
-    return ChatResponse(reply=reply)
+    intent, params = detect(req.message)
+    result = dispatch(intent, params, user_context, original_message=req.message)
+    return ChatResponse(
+        reply=result.get("reply", ""),
+        action=result.get("action"),
+        action_params=result.get("action_params"),
+    )

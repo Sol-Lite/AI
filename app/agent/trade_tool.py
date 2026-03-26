@@ -1,47 +1,36 @@
 """
-get_db_data - 내부 DB 조회 (잔고 / 거래내역 / 포트폴리오 분석)
+(11) 거래내역 조회 — Oracle DB
 """
-from typing import Literal
 from app.db.oracle import fetch_one, fetch_all
-from AI.app.hardcoding.get_market_data import get_market_data
-import requests
-def get_trade_data(
-    type: Literal[],
-    user_context: dict,
-    limit: int = 3,
-) -> dict:
+
+def get_trade_data(user_context: dict, limit: int = 5) -> dict:
     """
-    내부 DB에서 사용자 데이터를 조회합니다.
+    사용자의 거래내역을 Oracle DB에서 조회합니다.
 
     Args:
-        type: 
-        user_context: 세션에서 주입된 {"user_id": ..., "account_id": ...}
+        user_context: {"user_id": ..., "account_id": ..., "token": ...}
+        limit:        최근 매수/매도 각각 몇 건을 가져올지 (기본 5건)
+
     Returns:
-        type별 상이한 딕셔너리
+        {
+            "total":      int,
+            "buy_count":  int,
+            "sell_count": int,
+            "recent": [
+                {"stock_name": str, "side": str, "price": float,
+                 "quantity": int, "executed_at": str},
+                ...
+            ]
+        }
     """
     account_id = user_context["account_id"]
-
-    query_trades(account_id, limit)
-
-SPRING_BASE_URL = "http://localhost:8080"
-
-def _call_spring_api(path: str, params: dict | None = None):
-    try:
-        url = f"{SPRING_BASE_URL}{path}"
-        res = requests.get(url, params=params, timeout=3)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        return {
-            "success": False,
-            "error": "SPRING_API_ERROR",
-            "message": str(e)
-        }
+    return _query_trades(account_id, limit)
 
 
-# ── trades: 거래내역 ───────────────────────────────────────────────────────────────────
+# ── 내부 구현 ──────────────────────────────────────────────────────────────────
+
 def _query_trades(account_id: str, limit: int) -> dict:
-
+    # 전체 거래 건수 집계
     cnt_sql = """
         SELECT
             COUNT(DISTINCT ex.ORDER_ID)                                             AS total,
@@ -53,6 +42,7 @@ def _query_trades(account_id: str, limit: int) -> dict:
     cnt_row = fetch_one(cnt_sql, {"account_id": account_id}) or (0, 0, 0)
     total, buy_count, sell_count = cnt_row
 
+    # 최근 매수/매도 각 limit건 (UNION ALL → 최신순 정렬)
     recent_sql = """
         WITH last_buy AS (
             SELECT
@@ -82,26 +72,28 @@ def _query_trades(account_id: str, limit: int) -> dict:
             ORDER BY ex.EXECUTED_AT DESC
             FETCH FIRST :limit ROWS ONLY
         )
-        SELECT STOCK_NAME, ORDER_SIDE, EXECUTION_PRICE, EXECUTION_QUANTITY, EXECUTED_AT FROM last_buy
+        SELECT STOCK_NAME, ORDER_SIDE, EXECUTION_PRICE, EXECUTION_QUANTITY, EXECUTED_AT
+        FROM last_buy
         UNION ALL
-        SELECT STOCK_NAME, ORDER_SIDE, EXECUTION_PRICE, EXECUTION_QUANTITY, EXECUTED_AT FROM last_sell
+        SELECT STOCK_NAME, ORDER_SIDE, EXECUTION_PRICE, EXECUTION_QUANTITY, EXECUTED_AT
+        FROM last_sell
         ORDER BY EXECUTED_AT DESC
     """
-    rows = fetch_all(recent_sql, {"account_id": account_id, "limit": limit})
+    rows = fetch_all(recent_sql, {"account_id": account_id, "limit": limit}) or []
     recent = [
         {
             "stock_name":  row[0],
             "side":        row[1],
-            "price":       row[2],
-            "quantity":    row[3],
+            "price":       float(row[2] or 0),
+            "quantity":    int(row[3]   or 0),
             "executed_at": str(row[4]),
         }
         for row in rows
     ]
 
     return {
-        "total":      total,
-        "buy_count":  buy_count,
-        "sell_count": sell_count,
+        "total":      int(total      or 0),
+        "buy_count":  int(buy_count  or 0),
+        "sell_count": int(sell_count or 0),
         "recent":     recent,
     }
