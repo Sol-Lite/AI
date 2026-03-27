@@ -84,60 +84,60 @@ _PORTFOLIO_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_holdings",
-            "description": "현재 보유 중인 종목 목록과 수량, 평균 단가, 현재 평가금액, 수익률을 조회합니다.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
+            "description": (
+                "현재 보유 종목 목록을 조회합니다. "
+                "각 종목의 수량, 평균 단가, 현재가, 수익률, market_type(domestic=국내/overseas=해외)을 포함합니다. "
+                "종목 비중, 국내/해외 종목 구성, 특정 종목 보유 여부를 물을 때 사용합니다. "
+                "섹터(업종) 비중 질문에는 사용하지 마세요."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "get_portfolio_returns",
-            "description": "포트폴리오의 기간별 수익률(일간, 1개월, 3개월, 6개월)과 MDD(최대낙폭)를 조회합니다.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
+            "description": (
+                "기간별 수익률(일간, 1개월, 3개월, 6개월)과 MDD(최대낙폭)를 조회합니다. "
+                "수익률 추이, 기간별 성과 질문에 사용합니다."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "get_sector_concentration",
-            "description": "보유 종목의 섹터(업종)별 비중과 국내/해외 비중을 조회합니다.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
+            "description": (
+                "섹터(업종)별 비중을 조회합니다. 각 섹터의 market_type(domestic=국내/overseas=해외)을 포함합니다. "
+                "섹터 비중, 업종 비중 질문에만 사용합니다. "
+                "종목 비중 질문에는 사용하지 마세요."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "get_portfolio_risk",
-            "description": "포트폴리오 리스크 지표를 조회합니다: 변동성(표준편차), MDD, 최고/최저 수익 종목, 실현/미실현 손익.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
+            "description": (
+                "평가손익(미실현 손익), 실현손익, 변동성, MDD, 최고 수익 종목, 최저 수익 종목을 조회합니다. "
+                "손익 현황, 평가손익, 실현손익, 리스크, 최고/최저 수익 종목 질문에 사용합니다. "
+                "승률이나 거래 횟수 질문에는 사용하지 마세요."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
         "type": "function",
         "function": {
             "name": "get_trade_stats",
-            "description": "매매 통계를 조회합니다: 총 거래 수, 승률, 평균 이익/손실, 손익비(profit factor), 총 실현손익.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            },
+            "description": (
+                "매매 통계를 조회합니다: 총 거래 수, 승률, 평균 수익금/손실금, 손익비(profit factor). "
+                "승률, 손익비, 거래 통계 질문에만 사용합니다. "
+                "평가손익이나 수익률 질문에는 사용하지 마세요."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
 ]
@@ -147,6 +147,30 @@ _PORTFOLIO_TOOLS = [
 
 def _make_trade_executor(account_id: str):
     """account_id를 클로저로 캡처한 거래내역 tool 실행 함수를 반환합니다."""
+    from app.core.config import USE_MOCK
+
+    if USE_MOCK:
+        from app.agent.mock_data import (
+            MOCK_TRADE_SUMMARY, MOCK_RECENT_TRADES,
+        )
+        def execute(name: str, args: dict) -> str:
+            if name == "get_trade_summary":
+                return json.dumps(MOCK_TRADE_SUMMARY, ensure_ascii=False)
+            elif name == "get_recent_trades":
+                return json.dumps(MOCK_RECENT_TRADES, ensure_ascii=False)
+            elif name == "get_trades_by_stock":
+                stock = args.get("stock_code", "")
+                _CODE_TO_NAME = {
+                    "005930": "삼성전자", "000660": "SK하이닉스",
+                    "035720": "카카오",   "NVDA": "엔비디아", "AAPL": "애플",
+                }
+                name_key = _CODE_TO_NAME.get(stock, stock)
+                filtered = [t for t in MOCK_RECENT_TRADES["trades"]
+                            if t["stock_name"] == name_key or t["stock_name"] == stock]
+                return json.dumps({"trades": filtered, "stock_code": stock}, ensure_ascii=False)
+            return json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False)
+        return execute
+
     from app.agent.trade_tools import (
         get_trade_summary,
         get_recent_trades,
@@ -169,6 +193,25 @@ def _make_trade_executor(account_id: str):
 
 def _make_portfolio_executor(account_id: str):
     """account_id를 클로저로 캡처한 포트폴리오 tool 실행 함수를 반환합니다."""
+    from app.core.config import USE_MOCK
+
+    if USE_MOCK:
+        from app.agent.mock_data import (
+            MOCK_HOLDINGS, MOCK_PORTFOLIO_RETURNS,
+            MOCK_SECTOR_CONCENTRATION, MOCK_PORTFOLIO_RISK, MOCK_TRADE_STATS,
+        )
+        def execute(name: str, args: dict) -> str:
+            mapping = {
+                "get_holdings":              MOCK_HOLDINGS,
+                "get_portfolio_returns":     MOCK_PORTFOLIO_RETURNS,
+                "get_sector_concentration":  MOCK_SECTOR_CONCENTRATION,
+                "get_portfolio_risk":        MOCK_PORTFOLIO_RISK,
+                "get_trade_stats":           MOCK_TRADE_STATS,
+            }
+            result = mapping.get(name, {"error": f"Unknown tool: {name}"})
+            return json.dumps(result, ensure_ascii=False)
+        return execute
+
     from app.agent.portfolio_tools import (
         get_holdings,
         get_portfolio_returns,
@@ -252,7 +295,10 @@ def _run_agent(
                     except json.JSONDecodeError:
                         args = {}
 
-                tool_result = execute_tool(name, args)
+                try:
+                    tool_result = execute_tool(name, args)
+                except Exception as e:
+                    tool_result = json.dumps({"error": str(e)}, ensure_ascii=False)
                 messages.append({
                     "role":    "tool",
                     "name":    name,
@@ -264,11 +310,19 @@ def _run_agent(
 
 # ── (11) 거래내역 agent ───────────────────────────────────────────────────────
 
-_TRADES_SYSTEM = """당신은 주식 투자 어시스턴트입니다.
-반드시 제공된 도구(tools)를 먼저 호출하여 실제 데이터를 조회한 후 답변하세요.
-절대로 도구를 호출하지 않고 스스로 데이터를 추측하거나 지어내지 마세요.
-질문에 필요한 도구만 선택적으로 호출하고, 조회된 데이터를 바탕으로 한국어로 간결하게 답하세요.
-도구 호출 결과가 비어있으면 "거래 내역이 없습니다"라고 답하세요."""
+_TRADES_SYSTEM = """당신은 친근한 주식 투자 어시스턴트입니다.
+반드시 도구(tools)를 먼저 호출해 실제 데이터를 확인한 후 답변하세요.
+절대로 데이터를 추측하거나 지어내지 마세요.
+자연스러운 한국어 구어체로 간결하게 답하세요.
+
+도구 선택 기준:
+- 특정 종목의 거래 이력을 물으면 → get_trades_by_stock
+- 전체 거래내역이나 최근 거래를 물으면 → get_trade_summary + get_recent_trades
+
+날짜/시간 관련 질문(언제 샀지, 몇 월에 팔았지, 최근에 언제 샀지 등)에는 반드시 executed_at 값을 포함해 답하세요.
+예) "가장 최근 매수는 2026-03-26이에요."
+
+거래 내역이 없을 때는 "해당 종목 거래 이력이 없어요."라고 답하세요."""
 
 
 def ask_trades(user_context: dict, user_message: str) -> str:
@@ -280,11 +334,52 @@ def ask_trades(user_context: dict, user_message: str) -> str:
 
 # ── (12) 포트폴리오 분석 agent ────────────────────────────────────────────────
 
-_PORTFOLIO_SYSTEM = """당신은 투자 포트폴리오 분석 전문가입니다.
-반드시 제공된 도구(tools)를 먼저 호출하여 실제 데이터를 조회한 후 답변하세요.
-절대로 도구를 호출하지 않고 스스로 데이터를 추측하거나 지어내지 마세요.
-질문에 필요한 도구만 선택적으로 호출하고, 조회된 수치를 구체적으로 언급하며 한국어로 간결하게 답하세요.
-도구 호출 결과가 비어있으면 "보유 종목이 없습니다"라고 답하세요."""
+_PORTFOLIO_SYSTEM = """당신은 친근한 투자 포트폴리오 어시스턴트입니다.
+반드시 도구(tools)를 먼저 호출해 실제 데이터를 확인한 후 답변하세요.
+절대로 데이터를 추측하거나 지어내지 마세요.
+한국어와 영어만 사용하세요. 다른 언어(러시아어 등)는 절대 사용하지 마세요.
+주관적인 분석, 투자 의견, 인사이트는 추가하지 마세요. 데이터만 전달하세요.
+항목을 나열할 때는 줄바꿈을 사용해 가독성 있게 출력하세요.
+
+도구 선택 규칙 (반드시 준수):
+- 손익 현황 / 평가손익 / 실현손익 / 수익·손실 금액 → get_portfolio_risk
+- 리스크 / 변동성 / MDD / 최고·최저 수익 종목 → get_portfolio_risk
+- 기간별 수익률 (1개월, 3개월, 6개월) → get_portfolio_returns
+- 승률 / 손익비 / 거래 통계 → get_trade_stats
+- 종목 비중 / 국내·해외 종목 구성 / 보유 종목 → get_holdings
+- 섹터 비중 / 업종 비중 → get_sector_concentration
+
+국내/해외 구분:
+- get_holdings 결과에서 market_type=="domestic" 이면 국내, "overseas" 이면 해외
+- get_sector_concentration 결과에서 market_type=="domestic" 이면 국내 섹터, "overseas" 이면 해외 섹터
+- "국내 종목 비중" 질문 → get_holdings에서 domestic 항목만 나열
+- "해외 종목 비중" 질문 → get_holdings에서 overseas 항목만 나열
+- "국내 섹터 비중" 질문 → get_sector_concentration에서 domestic 항목만 나열
+- "해외 섹터 비중" 질문 → get_sector_concentration에서 overseas 항목만 나열
+
+최고/최저 수익 종목:
+- 반드시 get_portfolio_risk 결과의 best_stock, worst_stock 값을 그대로 사용하세요.
+- 직접 계산하거나 추측하지 마세요.
+
+리스크 분석 출력 형식 (괄호 안에 영어 변수명을 절대 쓰지 마세요):
+변동성: {volatility}%
+최대 낙폭(MDD): {mdd}%
+회복 필요 수익률: +{recovery_needed}%
+최고 수익 종목: {best_stock.name} / 수익률 {best_stock.return_rate}%
+최저 수익 종목: {worst_stock.name} / 수익률 {worst_stock.return_rate}%
+평가손익: {unrealized_pnl}원
+실현손익: {realized_pnl}원
+
+출력 금지 사항:
+- "volatility", "mdd", "best_stock", "worst_stock", "unrealized_pnl" 등 영어 변수명을 답변에 포함하지 마세요.
+- "포트폴리오를 조정하세요", "전략을 재평가하세요" 등 투자 조언을 추가하지 마세요.
+
+종목 보유 여부:
+- 보유 중이면: "네, X 종목 Y주 보유 중이에요." (다른 종목 나열 금지)
+- 보유하지 않으면: "X 종목은 현재 보유하고 있지 않아요." (보유 종목 나열 금지)
+- 전체 보유 종목: "현재 보유하고 있는 종목은 다음과 같습니다."로 시작
+
+증권사 이름(미래에셋, 키움 등)은 절대 답변에 포함하지 마세요."""
 
 
 def ask_portfolio(user_context: dict, user_message: str) -> str:
@@ -296,10 +391,26 @@ def ask_portfolio(user_context: dict, user_message: str) -> str:
 
 # ── unknown 폴백 agent ────────────────────────────────────────────────────────
 
-_GENERAL_SYSTEM = """당신은 주식 투자 어시스턴트입니다.
-사용자의 질문이 보유 종목, 수익률, 손익, 거래내역과 관련된 경우 반드시 도구(tools)를 먼저 호출하여 실제 데이터를 조회한 후 답변하세요.
-절대로 도구를 호출하지 않고 스스로 데이터를 추측하거나 지어내지 마세요.
-투자와 전혀 무관한 질문에는 "투자 관련 질문만 답변할 수 있습니다."라고 안내하세요."""
+_GENERAL_SYSTEM = """당신은 친근한 주식 투자 어시스턴트입니다.
+보유 종목, 수익률, 손익, 거래내역과 관련된 질문은 반드시 도구(tools)를 먼저 호출해 실제 데이터를 확인한 후 답변하세요.
+절대로 데이터를 추측하거나 지어내지 마세요.
+자연스러운 한국어 구어체로 간결하게 답하세요.
+투자와 전혀 무관한 질문에는 "투자 관련 질문만 답변드릴 수 있어요."라고 안내하세요.
+
+거래내역 관련 규칙:
+- 특정 종목의 거래를 물으면 → get_trades_by_stock 호출
+- 날짜/시간 관련 질문(언제 샀지, 최근에 언제 등)에는 반드시 executed_at 값을 포함해 답하세요.
+  예) "가장 최근 삼성전자 매수는 2026-03-26이에요."
+- 거래 이력이 없으면 "해당 종목 거래 이력이 없어요."라고 답하세요.
+
+보유 종목 관련 규칙:
+- 특정 종목 보유 여부를 물으면 → get_holdings 호출
+- 보유 중이면: "네, X 종목 Y주 보유 중이에요." (다른 종목 나열 금지)
+- 보유하지 않으면: "X 종목은 현재 보유하고 있지 않아요." (보유 종목 나열 금지)
+
+출력 금지:
+- "volatility", "mdd", "best_stock", "unrealized_pnl" 등 영어 변수명을 답변에 포함하지 마세요.
+- 투자 조언이나 포트폴리오 조정 권유를 추가하지 마세요."""
 
 _ALL_TOOLS = _TRADE_TOOLS + _PORTFOLIO_TOOLS
 

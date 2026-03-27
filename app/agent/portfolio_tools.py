@@ -10,6 +10,9 @@ tools:
     get_sector_concentration — 섹터별 비중
     get_portfolio_risk       — 변동성, MDD, 최고/최저 수익 종목
     get_trade_stats          — 거래 통계 (승률, 손익비, 실현손익)
+
+template:
+    get_portfolio_summary    — 위 함수들을 조합해 format_portfolio() 입력용 dict 반환
 """
 from app.db.oracle import fetch_one, fetch_all
 from app.hardcoding.get_market_data import get_market_data
@@ -250,6 +253,75 @@ def get_portfolio_risk(account_id: str) -> dict:
         "realized_pnl":   realized_pnl,
         "unrealized_pnl": unrealized_pnl,
         "stock_returns":  stock_returns,
+    }
+
+
+def get_portfolio_summary(account_id: str) -> dict:
+    """
+    템플릿 출력용 포트폴리오 전체 요약 데이터를 반환합니다.
+    format_portfolio() 의 입력 형식과 동일합니다.
+    """
+    from app.core.config import USE_MOCK
+
+    if USE_MOCK:
+        from app.agent.mock_data import (
+            MOCK_HOLDINGS, MOCK_PORTFOLIO_RETURNS,
+            MOCK_PORTFOLIO_RISK, MOCK_TRADE_STATS,
+        )
+        holdings   = MOCK_HOLDINGS
+        returns    = MOCK_PORTFOLIO_RETURNS
+        risk       = MOCK_PORTFOLIO_RISK
+        trade_stat = MOCK_TRADE_STATS
+    else:
+        holdings   = get_holdings(account_id)
+        returns    = get_portfolio_returns(account_id)
+        risk       = get_portfolio_risk(account_id)
+        trade_stat = get_trade_stats(account_id)
+
+    holding_list = holdings.get("holdings", [])
+    total_val    = sum(h.get("current_value_krw", 0) for h in holding_list) or 1
+
+    stock_concentration = sorted(
+        [
+            {"stock": h["stock_name"], "weight": round(h.get("current_value_krw", 0) / total_val * 100, 1)}
+            for h in holding_list
+        ],
+        key=lambda x: -x["weight"],
+    )
+
+    sector_map: dict[str, float] = {}
+    for h in holding_list:
+        s = h.get("sector", "기타")
+        sector_map[s] = sector_map.get(s, 0) + h.get("current_value_krw", 0)
+    sector_concentration = sorted(
+        [{"sector": s, "weight": round(v / total_val * 100, 1)} for s, v in sector_map.items()],
+        key=lambda x: -x["weight"],
+    )
+
+    domestic_val   = sum(h.get("current_value_krw", 0) for h in holding_list if h.get("market_type") == "domestic")
+    domestic_ratio = round(domestic_val / total_val * 100, 1)
+
+    return {
+        "unrealized_pnl":       risk.get("unrealized_pnl", 0),
+        "realized_pnl":         risk.get("realized_pnl",   0),
+        "return_1m":            returns.get("return_1m", 0),
+        "return_3m":            returns.get("return_3m", 0),
+        "return_6m":            returns.get("return_6m", 0),
+        "best_stock":           risk.get("best_stock"),
+        "worst_stock":          risk.get("worst_stock"),
+        "sector_concentration": sector_concentration,
+        "stock_concentration":  stock_concentration,
+        "domestic_ratio":       domestic_ratio,
+        "foreign_ratio":        round(100 - domestic_ratio, 1),
+        "mdd":                  risk.get("mdd", 0),
+        "recovery_needed":      risk.get("recovery_needed", 0),
+        "volatility":           risk.get("volatility", 0),
+        "total_trades":         trade_stat.get("total_trades", 0),
+        "win_count":            trade_stat.get("win_count",    0),
+        "loss_count":           trade_stat.get("loss_count",   0),
+        "avg_win":              trade_stat.get("avg_win",  0),
+        "avg_loss":             trade_stat.get("avg_loss", 0),
+        "profit_factor":        trade_stat.get("profit_factor", 0),
     }
 
 

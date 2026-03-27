@@ -27,6 +27,8 @@ MONGO_DB  = os.getenv("MONGO_DB", "mockstock")
 
 SPRING_BASE_URL = os.getenv("SPRING_BASE_URL", "http://localhost:8080")
 
+USE_MOCK = os.getenv("USE_MOCK", "false").lower() == "true"
+
 class Settings(BaseSettings):
     MONGO_URI: str
     MONGO_DB: str

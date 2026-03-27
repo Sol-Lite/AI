@@ -8,6 +8,9 @@ tools:
     get_trade_summary     — 총 거래 횟수, 매수/매도 횟수
     get_recent_trades     — 최근 N건 거래 목록
     get_trades_by_stock   — 특정 종목의 거래 내역
+
+template:
+    get_trades_template_data — 위 함수들을 조합해 format_trades() 입력용 dict 반환
 """
 from app.db.oracle import fetch_one, fetch_all
 
@@ -61,6 +64,29 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
     }
 
 
+def get_trades_template_data(account_id: str) -> dict:
+    """템플릿 출력용 거래내역 요약 데이터를 반환합니다. format_trades() 입력 형식."""
+    from app.core.config import USE_MOCK
+
+    if USE_MOCK:
+        from app.agent.mock_data import MOCK_TRADE_SUMMARY, MOCK_RECENT_TRADES
+        return {
+            "total":      MOCK_TRADE_SUMMARY["total"],
+            "buy_count":  MOCK_TRADE_SUMMARY["buy_count"],
+            "sell_count": MOCK_TRADE_SUMMARY["sell_count"],
+            "recent":     MOCK_RECENT_TRADES["trades"],
+        }
+
+    summary = get_trade_summary(account_id)
+    recent  = get_recent_trades(account_id, limit=5)
+    return {
+        "total":      summary["total"],
+        "buy_count":  summary["buy_count"],
+        "sell_count": summary["sell_count"],
+        "recent":     recent["trades"],
+    }
+
+
 def get_trades_by_stock(account_id: str, stock_code: str) -> dict:
     """특정 종목의 전체 거래 내역을 반환합니다."""
     sql = """
@@ -73,7 +99,7 @@ def get_trades_by_stock(account_id: str, stock_code: str) -> dict:
         FROM executions ex
         LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
         WHERE ex.account_id  = :account_id
-          AND i.STOCK_CODE   = :stock_code
+          AND (i.STOCK_CODE = :stock_code OR i.STOCK_NAME = :stock_code)
         ORDER BY ex.EXECUTED_AT DESC
     """
     rows = fetch_all(sql, {"account_id": account_id, "stock_code": stock_code}) or []

@@ -163,19 +163,43 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     return {"reply": format_stock_news(data)}
 
 
-def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
-    from app.agent.llm_agent import ask_trades
-    return {"reply": ask_trades(user_context, message)}
-
-
-def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
-    from app.agent.llm_agent import ask_portfolio
-    return {"reply": ask_portfolio(user_context, message)}
+_PORTFOLIO_SIMPLE_RE = re.compile(
+    r"^(내\s*)?(포트폴리오|포폴)(\s*(분석|보여|조회|알려|현황|요약))?(\s*(줘|해줘|해줘요|볼게|볼래))?$"
+)
+_TRADES_SIMPLE_RE = re.compile(
+    r"^(내\s*)?(거래\s*내역|거래내역|매매\s*내역|체결\s*내역)(\s*(보여|조회|알려))?(\s*(줘|해줘|해줘요|볼게|볼래))?$"
+)
 
 
 def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
     from app.agent.llm_agent import ask_general
-    return {"reply": ask_general(user_context, message)}
+    from app.templates.portfolio import format_portfolio
+    from app.templates.trades import format_trades
+
+    msg = message.strip()
+    account_id = user_context.get("account_id", "")
+
+    # 단순 포트폴리오 조회 → 템플릿
+    if _PORTFOLIO_SIMPLE_RE.match(msg):
+        try:
+            from app.agent.portfolio_tools import get_portfolio_summary
+            return {"reply": format_portfolio(get_portfolio_summary(account_id))}
+        except Exception:
+            pass
+
+    # 단순 거래내역 조회 → 템플릿
+    if _TRADES_SIMPLE_RE.match(msg):
+        try:
+            from app.agent.trade_tools import get_trades_template_data
+            return {"reply": format_trades(get_trades_template_data(account_id))}
+        except Exception:
+            pass
+
+    # 그 외 모든 자연어 → general agent
+    try:
+        return {"reply": ask_general(user_context, message)}
+    except Exception:
+        return {"reply": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."}
 
 
 # ── 핸들러 매핑 테이블 ────────────────────────────────────────────────────────
@@ -193,8 +217,6 @@ _HANDLERS = {
     "korea_summary":  _handle_korea_summary,
     "us_summary":     _handle_us_summary,
     "stock_news":     _handle_stock_news,
-    "trades":         _handle_trades,
-    "portfolio":      _handle_portfolio,
     "unknown":        _handle_unknown,
 }
 

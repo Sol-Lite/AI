@@ -29,6 +29,9 @@ _PATTERNS: dict[str, list[str]] = {
         r"살게",
         r"구매하고\s*싶",
         r"주식\s*사",
+        r"살래",
+        r"사줘",
+        r"구매",
     ],
     # (6) 매도
     "sell_intent": [
@@ -37,6 +40,9 @@ _PATTERNS: dict[str, list[str]] = {
         r"팔게",
         r"판매하고\s*싶",
         r"주식\s*팔",
+        r"팔래",
+        r"팔아줘",
+        r"구매",
     ],
     # (7) 환전 주문 — 환율 조회보다 먼저 검사
     "exchange_order": [
@@ -47,6 +53,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"원화로\s*바꿔",
         r"달러\s*환전",
         r"원화\s*환전",
+        r"환전"
+        r"환전\s*할래"
     ],
     # (5) 잔고 조회
     "balance": [
@@ -145,31 +153,6 @@ _PATTERNS: dict[str, list[str]] = {
         r"엔화\s*환율",
         r"엔\s*환율",
     ],
-    # (11) 거래내역 [AI agent]
-    "trades": [
-        r"거래\s*내역",
-        r"거래내역",
-        r"매매\s*내역",
-        r"체결\s*내역",
-        r"거래\s*기록",
-        r"내\s*거래",
-        r"주문\s*내역",
-    ],
-    # (12) 포트폴리오 분석 [AI agent]
-    "portfolio": [
-        r"포트폴리오",
-        r"포폴",
-        r"자산\s*분석",
-        r"수익률\s*분석",
-        r"투자\s*분석",
-        r"내\s*주식\s*분석",
-        r"손익",
-        r"손실",
-        r"보유\s*종목",
-        r"내\s*보유",
-        r"리스크",
-        r"변동성",
-    ],
 }
 
 # 의도 검사 우선순위 (앞에 있을수록 먼저 검사)
@@ -178,8 +161,6 @@ _PRIORITY = [
     "sell_intent",
     "exchange_order",
     "balance",
-    "trades",
-    "portfolio",
     "stock_news",
     "chart_price",
     "ranking",
