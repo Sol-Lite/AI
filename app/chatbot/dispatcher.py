@@ -105,39 +105,42 @@ def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
 def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
     stock_code = params.get("stock_code")
     if not stock_code:
-        return {
-            "reply": "어떤 종목을 매수하시겠어요? 종목명이나 코드를 알려주세요.\n예) 삼성전자 매수, 005930 사고 싶어",
-        }
-    resolved = _resolve_code(stock_code)
-    display = resolved or stock_code
+        return {"reply": "어떤 종목을 매수하시겠어요? 종목명을 알려주세요.\n예) 신한지주 매수"}
+    resolved  = _resolve_code(stock_code) or stock_code
+    disp_name = params.get("stock_name") or resolved
     return {
-        "reply": f"{display} 매수 주문 화면을 활성화합니다.",
-        "action": "activate_buy",
-        "action_params": {"stock_code": resolved or stock_code},
+        "type":       "order",
+        "reply":      f"**{disp_name}** 주문 정보를 입력하세요:",
+        "stock_code": resolved,
     }
 
 
 def _handle_sell_intent(params: dict, user_context: dict, message: str) -> dict:
     stock_code = params.get("stock_code")
     if not stock_code:
-        return {
-            "reply": "어떤 종목을 매도하시겠어요? 종목명이나 코드를 알려주세요.\n예) 삼성전자 매도, 005930 팔고 싶어",
-        }
-    resolved = _resolve_code(stock_code)
-    display = resolved or stock_code
+        return {"reply": "어떤 종목을 매도하시겠어요? 종목명을 알려주세요.\n예) 신한지주 매도"}
+    resolved  = _resolve_code(stock_code) or stock_code
+    disp_name = params.get("stock_name") or resolved
     return {
-        "reply": f"{display} 매도 주문 화면을 활성화합니다.",
-        "action": "activate_sell",
-        "action_params": {"stock_code": resolved or stock_code},
+        "type":       "order",
+        "reply":      f"**{disp_name}** 주문 정보를 입력하세요:",
+        "stock_code": resolved,
     }
 
 
 def _handle_exchange_order(params: dict, user_context: dict, message: str) -> dict:
     return {
+        "type":  "exchange",
         "reply": "환전 화면을 활성화합니다.",
-        "action": "activate_exchange",
-        "action_params": {},
     }
+
+
+def _handle_market_summary(params: dict, user_context: dict, message: str) -> dict:
+    korea = get_market_summary(type="korea")
+    us    = get_market_summary(type="us")
+    korea_text = format_korea_summary(korea)
+    us_text    = format_us_summary(us)
+    return {"reply": f"{korea_text}\n\n{us_text}"}
 
 
 def _handle_korea_summary(params: dict, user_context: dict, message: str) -> dict:
@@ -153,7 +156,7 @@ def _handle_us_summary(params: dict, user_context: dict, message: str) -> dict:
 def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     stock_code = params.get("stock_code")
     if not stock_code:
-        return {"reply": "어떤 종목의 뉴스를 조회할까요? 종목명이나 코드를 알려주세요.\n예) 삼성전자 뉴스, AAPL 기사"}
+        return {"reply": "어떤 종목의 기사를 조회할까요? 종목명을 알려주세요.\n예) 신한지주 기사"}
     data = get_market_summary(type="stock_news", stock_code=stock_code)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": data["error"]}
@@ -161,35 +164,18 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
 
 
 def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
-    from app.agent.trade_tool import get_trade_data
-    from app.agent.llm_agent import is_complex_query, ask_trades
-    from app.templates.trades import format_trades
-
-    data = get_trade_data(user_context)
-    if isinstance(data, dict) and data.get("error"):
-        return {"reply": "거래내역 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."}
-
-    if is_complex_query(message):
-        return {"reply": ask_trades(data, message)}
-    return {"reply": format_trades(data)}
+    from app.agent.llm_agent import ask_trades
+    return {"reply": ask_trades(user_context, message)}
 
 
 def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
-    from app.agent.portfolio_tool import get_portfolio_data
-    from app.agent.llm_agent import is_complex_query, ask_portfolio
-    from app.templates.portfolio import format_portfolio
-
-    data = get_portfolio_data(user_context)
-    if isinstance(data, dict) and data.get("error"):
-        return {"reply": "포트폴리오 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."}
-
-    if is_complex_query(message):
-        return {"reply": ask_portfolio(data, message)}
-    return {"reply": format_portfolio(data)}
+    from app.agent.llm_agent import ask_portfolio
+    return {"reply": ask_portfolio(user_context, message)}
 
 
 def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
-    return {"reply": _UNKNOWN_REPLY}
+    from app.agent.llm_agent import ask_general
+    return {"reply": ask_general(user_context, message)}
 
 
 # ── 핸들러 매핑 테이블 ────────────────────────────────────────────────────────
@@ -203,6 +189,7 @@ _HANDLERS = {
     "buy_intent":     _handle_buy_intent,
     "sell_intent":    _handle_sell_intent,
     "exchange_order": _handle_exchange_order,
+    "market_summary": _handle_market_summary,
     "korea_summary":  _handle_korea_summary,
     "us_summary":     _handle_us_summary,
     "stock_news":     _handle_stock_news,
