@@ -52,35 +52,41 @@ def format_korea_summary(data: dict) -> str:
     stocks           = summary.get("stocks", {})
     one_line_summary = summary.get("one_line_summary", "")
 
-    lines = [f"한국 시황  {date}", _SEP]
+    lines = ["한국 시황"]
+    if date:
+        lines += ["", f"날짜  {date}"]
+    lines += ["", _SEP, ""]
 
     if one_line_summary:
-        lines.append(one_line_summary)
-        lines.append("")
+        lines += [one_line_summary, "", _SEP, ""]
 
     if market_events:
-        lines.append("주요 이슈")
+        lines += ["■ 주요 이슈", ""]
         for event in market_events:
-            lines.append(f"  · {event}")
-        lines.append("")
+            lines += [f"· {event}", ""]
 
     if sectors:
-        lines.append("상승 섹터")
+        lines += ["■ 상승 섹터", ""]
         for market, sector_list in sectors.items():
-            label = "KOSPI " if market == "kospi" else "KOSDAQ"
-            lines.append(f"  {label}  " + "  ·  ".join(sector_list))
-        lines.append("")
+            label = "KOSPI" if market == "kospi" else "KOSDAQ"
+            lines += [f"  {label}", ""]
+            for s in sector_list:
+                lines += [f"  · {s}", ""]
 
     if stocks:
-        lines.append("주요 종목")
+        lines += ["■ 주요 종목", ""]
         for market, side_dict in stocks.items():
-            label = "KOSPI " if market == "kospi" else "KOSDAQ"
+            label = "KOSPI" if market == "kospi" else "KOSDAQ"
             up_list   = side_dict.get("up",   [])
             down_list = side_dict.get("down", [])
             if up_list:
-                lines.append(f"  {label}  ▲ " + "  ·  ".join(up_list))
+                lines += [f"  {label}  ▲", ""]
+                for s in up_list:
+                    lines += [f"  · {s}", ""]
             if down_list:
-                lines.append(" " * 6 + "  ▼ " + "  ·  ".join(down_list))
+                lines += [f"  {label}  ▼", ""]
+                for s in down_list:
+                    lines += [f"  · {s}", ""]
 
     lines.append(_SEP)
     return "\n".join(lines)
@@ -118,21 +124,21 @@ def format_us_summary(data: dict) -> str:
     market_sentiment = summary.get("market_sentiment", "")
     one_line_summary = summary.get("one_line_summary", "")
 
-    lines = [f"미국 시황  {date}", _SEP]
+    lines = ["미국 시황"]
+    if date:
+        lines += ["", f"날짜  {date}"]
+    lines += ["", _SEP, ""]
 
     if one_line_summary:
-        lines.append(one_line_summary)
-        lines.append("")
+        lines += [one_line_summary, "", _SEP, ""]
 
     if market_events:
-        lines.append("주요 이슈")
+        lines += ["■ 주요 이슈", ""]
         for event in market_events:
-            lines.append(f"  · {event}")
-        lines.append("")
+            lines += [f"· {event}", ""]
 
     if market_sentiment:
-        lines.append("시장 심리")
-        lines.append(f"  {market_sentiment}")
+        lines += ["■ 시장 심리", "", market_sentiment, ""]
 
     lines.append(_SEP)
     return "\n".join(lines)
