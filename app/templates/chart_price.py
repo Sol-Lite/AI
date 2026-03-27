@@ -2,7 +2,7 @@
 차트+시세 응답 템플릿
 """
 
-_SEP = "─" * 24
+_SEP = "━" * 26
 
 
 def format_chart_price(data: dict) -> str:
@@ -24,6 +24,7 @@ def format_chart_price(data: dict) -> str:
             }
     """
     stock_name  = data.get("stock_name") or data.get("stock_code", "-")
+    stock_code  = data.get("stock_code", "")
     current     = float(data.get("current_price") or 0)
     change      = float(data.get("change") or 0)
     change_rate = float(data.get("change_rate") or 0)
@@ -33,31 +34,36 @@ def format_chart_price(data: dict) -> str:
     volume      = int(data.get("volume") or 0)
 
     if change > 0:
-        sign = "▲"
+        sign = "🔺"
     elif change < 0:
-        sign = "▼"
+        sign = "🔻"
     else:
         sign = "-"
 
-    lines = [
-        f"■ {stock_name} 시세",
-        _SEP,
-        f"  현재가  {current:>12,.0f}원",
-        f"  등락    {sign}{abs(change):,.0f}원  ({sign}{abs(change_rate):.2f}%)",
+    header = f"**{stock_name} ({stock_code})**" if stock_code else f"**{stock_name}**"
+
+    sections = [header, _SEP]
+
+    # 현재가 + 전일 대비
+    price_block = [
+        f"**{current:,.0f}원**",
+        f"전일 대비  {sign} {abs(change):,.0f}원  ({sign}{abs(change_rate):.2f}%)",
     ]
+    sections.append("  \n".join(price_block))
 
+    # 시가 / 고가 / 저가
     if open_price or high or low:
-        lines += [
-            _SEP,
-            f"  시가    {open_price:>12,.0f}원",
-            f"  고가    {high:>12,.0f}원",
-            f"  저가    {low:>12,.0f}원",
+        ohlc_block = [
+            "**시가 / 고가 / 저가**",
+            f"시가  {open_price:>13,.0f}원",
+            f"고가  {high:>13,.0f}원",
+            f"저가  {low:>13,.0f}원",
         ]
+        sections.append("  \n".join(ohlc_block))
 
+    # 거래량
     if volume:
-        lines += [
-            _SEP,
-            f"  거래량  {volume:>12,}주",
-        ]
+        sections.append(f"**거래량**  {volume:,}주")
 
-    return "\n".join(lines)
+    sections.append(_SEP)
+    return "\n\n".join(sections)

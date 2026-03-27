@@ -16,6 +16,7 @@ import re
 import requests
 from datetime import date as date_type
 from app.db.oracle import resolve_stock_code
+from app.chatbot.stock_resolver import resolve_name_from_code
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 
@@ -115,9 +116,10 @@ def _fetch_price(stock_code: str, market: str | None) -> dict:
     if daily_data.get("error"):
         daily_data = {}
 
+    resolved_code = price_data.get("stockCode", stock_code)
     return {
-        "stock_name": stock_code,
-        "stock_code": price_data.get("stockCode", stock_code),
+        "stock_name": resolve_name_from_code(resolved_code) or resolved_code,
+        "stock_code": resolved_code,
         "current_price": price_data.get("currentPrice", 0),
         "change": price_data.get("changeAmount", 0),
         "change_rate": price_data.get("changeRate", 0.0),
@@ -177,12 +179,12 @@ def _fetch_daily(stock_code: str, date: str) -> dict:
 _VALID_RANKING_TYPES = {"trading-volume", "trading-value", "rising", "falling", "market-cap"}
 
 
-def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:  # noqa: ARG001
+def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:
     is_default = ranking_type not in _VALID_RANKING_TYPES
     api_type = ranking_type if not is_default else "trading-volume"
     stocks = _call_spring_api(
         "/api/market/stocks/ranking",
-        {"type": type, "market": market}
+        {"type": api_type}
     )
     return {
         "type":       api_type,
@@ -199,16 +201,23 @@ def _fetch_index():
 # ── exchange ──────────────────────────────────────────────────────────────────
 
 def _fetch_exchange(currency_pair: str | None) -> dict:
-    # TODO: Spring API 환율 엔드포인트 확정 시 path 교체
     pair = currency_pair or "USDKRW"
-    data = _call_spring_api(
-        "/api/market/exchange",
-        {"currencyPair": pair},
-    )
-    if data.get("error"):
-        return {"currency_pair": pair, "rate": 0.0, "change": 0.0}
-    return {
-        "currency_pair": pair,
-        "rate":   data.get("rate", 0.0),
-        "change": data.get("change", 0.0),
-    }
+
+    # USD/KRW는 /api/market/indices 에서 가져옴
+    if pair == "USDKRW":
+        indices = _call_spring_api("/api/market/indices")
+        if isinstance(indices, list):
+            usd_item = next(
+                (i for i in indices
+                 if "USD" in i.get("name", "").upper() or "달러" in i.get("name", "")),
+                None,
+            )
+            if usd_item:
+                return {
+                    "currency_pair": pair,
+                    "rate":        float(usd_item.get("price")      or 0),
+                    "change":      float(usd_item.get("change")     or 0),
+                    "change_rate": float(usd_item.get("changeRate") or 0),
+                }
+
+    return {"currency_pair": pair, "rate": 0.0, "change": 0.0, "change_rate": 0.0}

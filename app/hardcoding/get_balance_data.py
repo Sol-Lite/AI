@@ -15,26 +15,20 @@ def get_db_data(type: str, user_context: dict, **kwargs) -> dict:
     Args:
         type:         "balance"
         user_context: {"user_id": ..., "account_id": ..., "token": ...}
-
-    Returns:
-        {
-            "krw_available": float,
-            "krw_total":     float,
-            "usd_available": float,
-            "usd_total":     float,
-        }
     """
+    token = user_context.get("token", "")
     if type in ("balance", "balance_detail"):
-        return _query_balance(user_context["account_id"])
+        return _query_balance(token)
     raise ValueError(f"Unknown type: {type}")
 
 
 # ── Spring API 호출 ────────────────────────────────────────────────────────────
 
-def _call_spring_api(path: str, params: dict | None = None) -> dict:
+def _call_spring_api(path: str, token: str = "", params: dict | None = None) -> dict:
     try:
-        url = f"{SPRING_BASE_URL}{path}"
-        res = requests.get(url, params=params, timeout=3)
+        url     = f"{SPRING_BASE_URL}{path}"
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        res     = requests.get(url, params=params, headers=headers, timeout=3)
         res.raise_for_status()
         return res.json()
     except Exception as e:
@@ -42,8 +36,6 @@ def _call_spring_api(path: str, params: dict | None = None) -> dict:
 
 
 # ── balance: 잔고 ──────────────────────────────────────────────────────────────
-# Spring API GET /api/balance/cash
-# 반환 키: krw_available, krw_total, usd_available, usd_total
 
-def _query_balance(account_id: str) -> dict:
-    return _call_spring_api("/api/balance/cash")
+def _query_balance(token: str) -> dict:
+    return _call_spring_api("/api/balance/summary", token=token)

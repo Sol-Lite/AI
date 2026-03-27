@@ -18,7 +18,7 @@
     unknown         - 인식 불가
 """
 import re
-from app.chatbot.stock_resolver import resolve_from_csv
+from app.chatbot.stock_resolver import resolve_from_csv, _normalize_message
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {
@@ -27,17 +27,26 @@ _PATTERNS: dict[str, list[str]] = {
         r"매수",
         r"사고\s*싶",
         r"살게",
+        r"살래",
+        r"살까",
+        r"사\s*줘",
+        r"사볼까",
         r"구매하고\s*싶",
+        r"구매\s*할게",
         r"주식\s*사",
         r"살래",
         r"사줘",
         r"구매",
+        r"매입",
     ],
     # (6) 매도
     "sell_intent": [
         r"매도",
         r"팔고\s*싶",
         r"팔게",
+        r"팔래",
+        r"팔까",
+        r"팔아\s*줘",
         r"판매하고\s*싶",
         r"주식\s*팔",
         r"팔래",
@@ -54,7 +63,9 @@ _PATTERNS: dict[str, list[str]] = {
         r"환전\s*해",
         r"환전\s*하려",
         r"달러로\s*바꿔",
+        r"달러로\s*환전",
         r"원화로\s*바꿔",
+        r"원화로\s*환전",
         r"달러\s*환전",
         r"원화\s*환전",
         r"환전"
@@ -62,11 +73,15 @@ _PATTERNS: dict[str, list[str]] = {
     # (5) 잔고 조회
     "balance": [
         r"잔고",
+        r"잔액",
         r"예수금",
         r"보유\s*현금",
         r"현금\s*잔액",
         r"내\s*계좌",
         r"계좌\s*잔액",
+        r"보유\s*금액",
+        r"투자\s*가능\s*금액",
+        r"가용\s*금액",
     ],
     # (10) 종목별 뉴스 — chart_price 보다 먼저 검사
     "stock_news": [
@@ -74,6 +89,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"기사",
         r"소식",
         r"뉴스\s*요약",
+        r"최신\s*뉴스",
+        r"관련\s*뉴스",
     ],
     # (4) 차트+시세
     "chart_price": [
@@ -81,54 +98,66 @@ _PATTERNS: dict[str, list[str]] = {
         r"시세",
         r"주가",
         r"현재가",
-        r"얼마",
+        r"현재\s*가격",
+        r"고가",
+        r"시가(?!총액)",   # "시가총액"은 ranking에서 처리
+        r"종가",
+        r"최고가",
+        r"최저가",
+        r"상한가",
+        r"하한가",
+        r"가격\s*알려",
+        r"가격\s*조회",
     ],
     # (3) 주식 순위
     "ranking": [
         r"순위",
         r"랭킹",
         r"상위\s*종목",
+        r"인기\s*종목",
+        r"핫한\s*종목",
         r"상승주",
         r"하락주",
+        r"많이\s*오른",
+        r"많이\s*내린",
+        r"상승률\s*높",
+        r"하락률\s*높",
         r"거래량\s*순",
+        r"거래량\s*많",
         r"거래대금\s*순",
+        r"거래대금\s*많",
         r"시가총액\s*순",
-    ],
-    # (8+9) 한국+미국 시황 동시 조회 — korea_summary/us_summary 보다 먼저 검사
-    "market_summary": [
-        r"시황",
-        r"시장",
-        r"시황\s*요약",
-        r"전체\s*시황",
-        r"전체\s*시장",
-        r"오늘\s*시장",
-        r"오늘\s*시황",
-        r"시장\s*요약",
+        r"시총\s*순",
+        r"시총",
+        r"급상승",
+        r"급하락",
     ],
     # (8) 한국 시황 — index 보다 먼저 검사
     "korea_summary": [
-        r"한국\s*시장",
         r"한국\s*시황",
         r"국내\s*시황",
-        r"국내\s*시장",
         r"한국장",
-        r"국장",
         r"코스피\s*시황",
         r"코스닥\s*시황",
-        r"코스피\s*시장",
-        r"코스닥\s*시장",
-        
+        r"오늘\s*시황",
+        r"오늘\s*장",
+        r"장\s*어때",
+        r"장\s*상황",
+        r"국내\s*증시",
+        r"한국\s*증시",
+        r"증시\s*어때",
     ],
     # (9) 미국 시황
     "us_summary": [
         r"미국\s*시황",
-        r"미국\s*시장",
         r"미국장",
-        r"미장",
         r"나스닥\s*시황",
         r"해외\s*시황",
-        r"해외\s*시장",
         r"월가",
+        r"뉴욕\s*증시",
+        r"뉴욕증시",
+        r"미국\s*증시",
+        r"미국\s*주식\s*시장",
     ],
     # (1) 지수 조회
     "index": [
@@ -137,24 +166,61 @@ _PATTERNS: dict[str, list[str]] = {
         r"코스닥",
         r"나스닥",
         r"s&p",
+        r"sp\s*500",
         r"에스앤피",
         r"다우",
+        r"다우\s*존스",
         r"닛케이",
         r"항셍",
-        r"미장지수",
-        r"미장\s*지수",
-        r"국장지수",
-        r"국장\s*지수",
     ],
     # (2) 환율 조회
     "exchange_rate": [
         r"환율",
         r"달러\s*환율",
-        r"원달러",
         r"달러\s*얼마",
+        r"달러\s*가격",
+        r"달러\s*시세",
+        r"달러",
+        r"달러값",
+        r"원달러",
+        r"달러원",
+        r"오늘\s*환율",
+        r"현재\s*환율",
         r"유로\s*환율",
+        r"유로\s*얼마",
         r"엔화\s*환율",
+        r"엔화\s*얼마",
         r"엔\s*환율",
+    ],
+    # (11) 거래내역 [AI agent]
+    "trades": [
+        r"거래\s*내역",
+        r"거래내역",
+        r"매매\s*내역",
+        r"체결\s*내역",
+        r"거래\s*기록",
+        r"거래\s*이력",
+        r"내\s*거래",
+        r"주문\s*내역",
+        r"최근\s*거래",
+        r"매수\s*내역",
+        r"매도\s*내역",
+        r"투자\s*내역",
+    ],
+    # (12) 포트폴리오 분석 [AI agent]
+    "portfolio": [
+        r"포트폴리오",
+        r"포폴",
+        r"자산\s*분석",
+        r"수익률\s*분석",
+        r"투자\s*분석",
+        r"내\s*주식\s*분석",
+        r"내\s*수익률",
+        r"보유\s*주식",
+        r"보유\s*종목",
+        r"수익률",
+        r"손익",
+        r"내\s*자산",
     ],
 }
 
@@ -165,12 +231,11 @@ _PRIORITY = [
     "exchange_order",
     "balance",
     "stock_news",
-    "chart_price",
-    "ranking",
-    "index",
-    "market_summary",
     "korea_summary",
     "us_summary",
+    "index",          # chart_price보다 먼저: "코스피 얼마야" 등이 chart_price로 잘못 잡히는 문제 방지
+    "chart_price",
+    "ranking",
     "exchange_rate",
 ]
 
@@ -209,32 +274,35 @@ def detect(message: str) -> tuple[str, dict]:
 
 # ── 파라미터 추출 헬퍼 ─────────────────────────────────────────────────────────
 
-def _extract_stock(message: str) -> tuple[str | None, str | None]:
+def _extract_stock(message: str) -> str | None:
     """
-    메시지에서 (종목코드, 종목명)을 추출합니다.
+    메시지에서 종목코드를 추출합니다.
 
     우선순위:
-      1. 6자리 숫자          → 국내 종목코드 (예: 005930), 종목명 None
-      2. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL),   종목명 = 티커
-      3. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
+      1. 6자리 숫자          → 국내 종목코드 (예: 005930)
+      2. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
+      3. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL)
     """
+    # 영문-한글 경계 공백 제거 ("SK 하이닉스" → "SK하이닉스")
+    normalized = _normalize_message(message)
+
     # 1. 국내 종목코드: 6자리 숫자
-    m = re.search(r'\b(\d{6})\b', message)
+    m = re.search(r'\b(\d{6})\b', normalized)
     if m:
-        return m.group(1), None
+        return m.group(1)
 
-    # 2. 미국 티커: 2~5자리 영문 대문자
-    m = re.search(r'\b([A-Z]{2,5})\b', message)
-    if m:
-        ticker = m.group(1)
-        return ticker, ticker
-
-    # 3. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
-    code, name = resolve_from_csv(message)
+    # 2. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
+    #    ticker 검사보다 먼저: "SK하이닉스"가 "SK" 티커로 잡히는 문제 방지
+    code, _ = resolve_from_csv(normalized)
     if code:
-        return code, name
+        return code
 
-    return None, None
+    # 3. 미국 티커: 2~5자리 영문 대문자
+    m = re.search(r'\b([A-Z]{2,5})\b', normalized)
+    if m:
+        return m.group(1)
+
+    return None
 
 
 def _extract_ranking_type(message: str) -> str:
@@ -246,15 +314,15 @@ def _extract_ranking_type(message: str) -> str:
         return "rising"
     if re.search(r"하락", message):
         return "falling"
-    if re.search(r"시가총액", message):
+    if re.search(r"시가총액|시총", message):
         return "market-cap"
-    return "trading-volume"  # 기본값
+    return "trading-value"  # 기본값
 
 
-def _extract_market(message: str) -> str:
-    if re.search(r"해외|미국|나스닥|뉴욕|NYSE|NASDAQ", message, re.IGNORECASE):
-        return "overseas"
-    return "domestic"
+# def _extract_market(message: str) -> str:
+#     if re.search(r"해외|미국|나스닥|뉴욕|NYSE|NASDAQ", message, re.IGNORECASE):
+#         return "overseas"
+#     return "domestic"
 
 
 def _extract_currency_pair(message: str) -> str:
@@ -269,13 +337,11 @@ def _extract_currency_pair(message: str) -> str:
 
 def _extract_params(intent: str, message: str) -> dict:
     if intent in ("chart_price", "stock_news", "buy_intent", "sell_intent"):
-        code, name = _extract_stock(message)
-        return {"stock_code": code, "stock_name": name}
+        return {"stock_code": _extract_stock(message)}
 
     if intent == "ranking":
         return {
             "ranking_type": _extract_ranking_type(message),
-            "market": _extract_market(message),
         }
 
     if intent == "exchange_rate":
