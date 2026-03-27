@@ -18,7 +18,7 @@
     unknown         - 인식 불가
 """
 import re
-from app.chatbot.stock_resolver import resolve_from_csv
+from app.chatbot.stock_resolver import resolve_from_csv, _normalize_message
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {
@@ -201,23 +201,27 @@ def _extract_stock(message: str) -> str | None:
 
     우선순위:
       1. 6자리 숫자          → 국내 종목코드 (예: 005930)
-      2. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL)
-      3. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
+      2. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
+      3. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL)
     """
+    # 영문-한글 경계 공백 제거 ("SK 하이닉스" → "SK하이닉스")
+    normalized = _normalize_message(message)
+
     # 1. 국내 종목코드: 6자리 숫자
-    m = re.search(r'\b(\d{6})\b', message)
+    m = re.search(r'\b(\d{6})\b', normalized)
     if m:
         return m.group(1)
 
-    # 2. 미국 티커: 2~5자리 영문 대문자
-    m = re.search(r'\b([A-Z]{2,5})\b', message)
-    if m:
-        return m.group(1)
-
-    # 3. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
-    code, _ = resolve_from_csv(message)
+    # 2. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
+    #    ticker 검사보다 먼저: "SK하이닉스"가 "SK" 티커로 잡히는 문제 방지
+    code, _ = resolve_from_csv(normalized)
     if code:
         return code
+
+    # 3. 미국 티커: 2~5자리 영문 대문자
+    m = re.search(r'\b([A-Z]{2,5})\b', normalized)
+    if m:
+        return m.group(1)
 
     return None
 

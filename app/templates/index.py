@@ -10,7 +10,7 @@ _SIGN_MAP = {"2": "▲", "5": "▼", "1": "▲", "4": "▼"}
 _INDEX_KEYWORD_TO_NAMES = {
     "코스피":  ["KOSPI"],
     "코스닥":  ["KOSDAQ"],
-    "나스닥":  ["NASDAQ"],
+    "나스닥":  ["NASDAQ", "나스닥", "NAS@IXIC", "IXIC"],
     "s&p":    ["S&P 500", "S&P500"],
     "에스앤피": ["S&P 500"],
     "다우":    ["DOW", "DJIA", "DOW JONES"],   # 다우, 다우존스 모두 처리

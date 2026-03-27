@@ -16,6 +16,7 @@ import re
 import requests
 from datetime import date as date_type
 from app.db.oracle import resolve_stock_code
+from app.chatbot.stock_resolver import resolve_name_from_code
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 
@@ -115,9 +116,10 @@ def _fetch_price(stock_code: str, market: str | None) -> dict:
     if daily_data.get("error"):
         daily_data = {}
 
+    resolved_code = price_data.get("stockCode", stock_code)
     return {
-        "stock_name": stock_code,
-        "stock_code": price_data.get("stockCode", stock_code),
+        "stock_name": resolve_name_from_code(resolved_code) or resolved_code,
+        "stock_code": resolved_code,
         "current_price": price_data.get("currentPrice", 0),
         "change": price_data.get("changeAmount", 0),
         "change_rate": price_data.get("changeRate", 0.0),
