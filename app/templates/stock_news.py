@@ -162,7 +162,7 @@ def format_stock_news(data: dict) -> str:
     stock_name = data.get("stock_name") or stock_code
     news       = data.get("news", [])
 
-    lines = [f"{stock_name} 종목 뉴스", _SEP]
+    lines = [f"{stock_name} 종목 뉴스", _SEP, ""]
 
     if not news:
         lines.append("관련 뉴스가 없습니다.")
@@ -173,15 +173,21 @@ def format_stock_news(data: dict) -> str:
         title        = item.get("title",        "")
         summary      = item.get("summary",      "")
         published_at = item.get("published_at", "")
-        lines.append(f"{idx}. 기사제목: {title}  ({published_at})" if published_at else f"{idx}. 기사제목: {title}")
+
+        lines.append(f"[{idx}]  {title}")
+        if published_at:
+            lines.append(f"날짜  {published_at}")
+        lines.append("")
         if summary:
             if isinstance(summary, str):
-                lines.append(f"   요약: {summary}")
+                one_line = summary
             elif isinstance(summary, dict):
                 one_line = summary.get("one_line_summary") or summary.get("summary", "")
-                if one_line:
-                    lines.append(f"   요약: {one_line}")
+            else:
+                one_line = ""
+            if one_line:
+                lines.append(f"요약:  {one_line}")
+        lines.append(_SEP)
         lines.append("")
 
-    lines.append(_SEP)
     return "\n".join(lines)
