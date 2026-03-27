@@ -261,22 +261,10 @@ def get_portfolio_summary(account_id: str) -> dict:
     템플릿 출력용 포트폴리오 전체 요약 데이터를 반환합니다.
     format_portfolio() 의 입력 형식과 동일합니다.
     """
-    from app.core.config import USE_MOCK
-
-    if USE_MOCK:
-        from app.agent.mock_data import (
-            MOCK_HOLDINGS, MOCK_PORTFOLIO_RETURNS,
-            MOCK_PORTFOLIO_RISK, MOCK_TRADE_STATS,
-        )
-        holdings   = MOCK_HOLDINGS
-        returns    = MOCK_PORTFOLIO_RETURNS
-        risk       = MOCK_PORTFOLIO_RISK
-        trade_stat = MOCK_TRADE_STATS
-    else:
-        holdings   = get_holdings(account_id)
-        returns    = get_portfolio_returns(account_id)
-        risk       = get_portfolio_risk(account_id)
-        trade_stat = get_trade_stats(account_id)
+    holdings   = get_holdings(account_id)
+    returns    = get_portfolio_returns(account_id)
+    risk       = get_portfolio_risk(account_id)
+    trade_stat = get_trade_stats(account_id)
 
     holding_list = holdings.get("holdings", [])
     total_val    = sum(h.get("current_value_krw", 0) for h in holding_list) or 1

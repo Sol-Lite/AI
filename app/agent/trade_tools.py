@@ -66,17 +66,6 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
 
 def get_trades_template_data(account_id: str) -> dict:
     """템플릿 출력용 거래내역 요약 데이터를 반환합니다. format_trades() 입력 형식."""
-    from app.core.config import USE_MOCK
-
-    if USE_MOCK:
-        from app.agent.mock_data import MOCK_TRADE_SUMMARY, MOCK_RECENT_TRADES
-        return {
-            "total":      MOCK_TRADE_SUMMARY["total"],
-            "buy_count":  MOCK_TRADE_SUMMARY["buy_count"],
-            "sell_count": MOCK_TRADE_SUMMARY["sell_count"],
-            "recent":     MOCK_RECENT_TRADES["trades"],
-        }
-
     summary = get_trade_summary(account_id)
     recent  = get_recent_trades(account_id, limit=5)
     return {

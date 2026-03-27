@@ -147,30 +147,6 @@ _PORTFOLIO_TOOLS = [
 
 def _make_trade_executor(account_id: str):
     """account_id를 클로저로 캡처한 거래내역 tool 실행 함수를 반환합니다."""
-    from app.core.config import USE_MOCK
-
-    if USE_MOCK:
-        from app.agent.mock_data import (
-            MOCK_TRADE_SUMMARY, MOCK_RECENT_TRADES,
-        )
-        def execute(name: str, args: dict) -> str:
-            if name == "get_trade_summary":
-                return json.dumps(MOCK_TRADE_SUMMARY, ensure_ascii=False)
-            elif name == "get_recent_trades":
-                return json.dumps(MOCK_RECENT_TRADES, ensure_ascii=False)
-            elif name == "get_trades_by_stock":
-                stock = args.get("stock_code", "")
-                _CODE_TO_NAME = {
-                    "005930": "삼성전자", "000660": "SK하이닉스",
-                    "035720": "카카오",   "NVDA": "엔비디아", "AAPL": "애플",
-                }
-                name_key = _CODE_TO_NAME.get(stock, stock)
-                filtered = [t for t in MOCK_RECENT_TRADES["trades"]
-                            if t["stock_name"] == name_key or t["stock_name"] == stock]
-                return json.dumps({"trades": filtered, "stock_code": stock}, ensure_ascii=False)
-            return json.dumps({"error": f"Unknown tool: {name}"}, ensure_ascii=False)
-        return execute
-
     from app.agent.trade_tools import (
         get_trade_summary,
         get_recent_trades,
@@ -193,25 +169,6 @@ def _make_trade_executor(account_id: str):
 
 def _make_portfolio_executor(account_id: str):
     """account_id를 클로저로 캡처한 포트폴리오 tool 실행 함수를 반환합니다."""
-    from app.core.config import USE_MOCK
-
-    if USE_MOCK:
-        from app.agent.mock_data import (
-            MOCK_HOLDINGS, MOCK_PORTFOLIO_RETURNS,
-            MOCK_SECTOR_CONCENTRATION, MOCK_PORTFOLIO_RISK, MOCK_TRADE_STATS,
-        )
-        def execute(name: str, args: dict) -> str:
-            mapping = {
-                "get_holdings":              MOCK_HOLDINGS,
-                "get_portfolio_returns":     MOCK_PORTFOLIO_RETURNS,
-                "get_sector_concentration":  MOCK_SECTOR_CONCENTRATION,
-                "get_portfolio_risk":        MOCK_PORTFOLIO_RISK,
-                "get_trade_stats":           MOCK_TRADE_STATS,
-            }
-            result = mapping.get(name, {"error": f"Unknown tool: {name}"})
-            return json.dumps(result, ensure_ascii=False)
-        return execute
-
     from app.agent.portfolio_tools import (
         get_holdings,
         get_portfolio_returns,
