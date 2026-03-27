@@ -88,6 +88,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"거래량\s*순",
         r"거래대금\s*순",
         r"시가총액\s*순",
+        r"시총\s*순",
+        r"시총",
         r"급상승",
         r"급하락",
     ],
@@ -243,7 +245,7 @@ def _extract_ranking_type(message: str) -> str:
         return "rising"
     if re.search(r"하락", message):
         return "falling"
-    if re.search(r"시가총액", message):
+    if re.search(r"시가총액|시총", message):
         return "market-cap"
     return "trading-value"  # 기본값
 
