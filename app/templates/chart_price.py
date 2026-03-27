@@ -34,9 +34,9 @@ def format_chart_price(data: dict) -> str:
     volume      = int(data.get("volume") or 0)
 
     if change > 0:
-        sign = "▲"
+        sign = "🔺"
     elif change < 0:
-        sign = "▼"
+        sign = "🔻"
     else:
         sign = "-"
 

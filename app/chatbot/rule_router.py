@@ -83,40 +83,21 @@ _PATTERNS: dict[str, list[str]] = {
         r"거래대금\s*순",
         r"시가총액\s*순",
     ],
-    # (8+9) 한국+미국 시황 동시 조회 — korea_summary/us_summary 보다 먼저 검사
-    "market_summary": [
-        r"시황",
-        r"시장",
-        r"시황\s*요약",
-        r"전체\s*시황",
-        r"전체\s*시장",
-        r"오늘\s*시장",
-        r"오늘\s*시황",
-        r"시장\s*요약",
-    ],
     # (8) 한국 시황 — index 보다 먼저 검사
     "korea_summary": [
-        r"한국\s*시장",
         r"한국\s*시황",
         r"국내\s*시황",
-        r"국내\s*시장",
         r"한국장",
-        r"국장",
         r"코스피\s*시황",
         r"코스닥\s*시황",
-        r"코스피\s*시장",
-        r"코스닥\s*시장",
-        
+        r"오늘\s*시황",
     ],
     # (9) 미국 시황
     "us_summary": [
         r"미국\s*시황",
-        r"미국\s*시장",
         r"미국장",
-        r"미장",
         r"나스닥\s*시황",
         r"해외\s*시황",
-        r"해외\s*시장",
         r"월가",
     ],
     # (1) 지수 조회
@@ -130,10 +111,6 @@ _PATTERNS: dict[str, list[str]] = {
         r"다우",
         r"닛케이",
         r"항셍",
-        r"미장지수",
-        r"미장\s*지수",
-        r"국장지수",
-        r"국장\s*지수",
     ],
     # (2) 환율 조회
     "exchange_rate": [
@@ -163,12 +140,6 @@ _PATTERNS: dict[str, list[str]] = {
         r"수익률\s*분석",
         r"투자\s*분석",
         r"내\s*주식\s*분석",
-        r"손익",
-        r"손실",
-        r"보유\s*종목",
-        r"내\s*보유",
-        r"리스크",
-        r"변동성",
     ],
 }
 
@@ -181,12 +152,11 @@ _PRIORITY = [
     "trades",
     "portfolio",
     "stock_news",
-    "chart_price",
-    "ranking",
-    "index",
-    "market_summary",
     "korea_summary",
     "us_summary",
+    "index",          # chart_price보다 먼저: "코스피 얼마야" 등이 chart_price로 잘못 잡히는 문제 방지
+    "chart_price",
+    "ranking",
     "exchange_rate",
 ]
 
@@ -225,9 +195,9 @@ def detect(message: str) -> tuple[str, dict]:
 
 # ── 파라미터 추출 헬퍼 ─────────────────────────────────────────────────────────
 
-def _extract_stock(message: str) -> tuple[str | None, str | None]:
+def _extract_stock(message: str) -> str | None:
     """
-    메시지에서 (종목코드, 종목명)을 추출합니다.
+    메시지에서 종목코드를 추출합니다.
 
     우선순위:
       1. 6자리 숫자          → 국내 종목코드 (예: 005930)
@@ -240,13 +210,13 @@ def _extract_stock(message: str) -> tuple[str | None, str | None]:
     # 1. 국내 종목코드: 6자리 숫자
     m = re.search(r'\b(\d{6})\b', normalized)
     if m:
-        return m.group(1), None
+        return m.group(1)
 
     # 2. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
     #    ticker 검사보다 먼저: "SK하이닉스"가 "SK" 티커로 잡히는 문제 방지
     code, _ = resolve_from_csv(normalized)
     if code:
-        return code, name
+        return code
 
     # 3. 미국 티커: 2~5자리 영문 대문자
     m = re.search(r'\b([A-Z]{2,5})\b', normalized)
@@ -288,8 +258,7 @@ def _extract_currency_pair(message: str) -> str:
 
 def _extract_params(intent: str, message: str) -> dict:
     if intent in ("chart_price", "stock_news", "buy_intent", "sell_intent"):
-        code, name = _extract_stock(message)
-        return {"stock_code": code, "stock_name": name}
+        return {"stock_code": _extract_stock(message)}
 
     if intent == "ranking":
         return {

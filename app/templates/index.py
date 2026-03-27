@@ -2,9 +2,9 @@
 지수
 """
 
-_SEP = "─" * 24
+_SEP = "━" * 22
 
-_SIGN_MAP = {"2": "▲", "5": "▼", "1": "▲", "4": "▼"}
+_SIGN_MAP = {"2": "🔺", "5": "🔻", "1": "🔺", "4": "🔻"}
 
 # 사용자 키워드 → API name 필드 매핑
 _INDEX_KEYWORD_TO_NAMES = {
@@ -67,27 +67,33 @@ def format_index(data, user_message: str | None = None) -> str:
     if user_message:
         items = _filter_for_message(items, user_message)
 
-    lines = ["■ 주요 지수", _SEP]
+    sections = ["**주요 지수**", _SEP]
+
     for item in items:
-        name = item.get("name", "")
-        price = item.get("price")
-        change = item.get("change")
+        name        = item.get("name", "")
+        price       = item.get("price")
+        change      = item.get("change")
         change_rate = item.get("changeRate")
-        sign_code = str(item.get("sign") or "")
+        sign_code   = str(item.get("sign") or "")
 
         if price is None:
-            lines.append(f"  {name}: 현재 조회 불가")
+            sections.append(f"**{name}**  \n조회 불가")
             continue
 
         sign = _SIGN_MAP.get(sign_code, "")
         if not sign and change_rate is not None:
             rate = float(change_rate)
-            sign = "▲" if rate > 0 else "▼" if rate < 0 else ""
+            sign = "🔺" if rate > 0 else "🔻" if rate < 0 else ""
 
-        price_str = f"{float(price):,.2f}"
-        line = f"  {name}: {price_str}"
-        if change is not None and change_rate is not None:
-            line += f"  {sign}{abs(float(change)):,.2f} ({sign}{abs(float(change_rate)):.2f}%)"
-        lines.append(line)
+        price_str   = f"{float(price):,.2f}"
+        change_str  = f"{sign}{abs(float(change)):,.2f}" if change is not None else ""
+        rate_str    = f"({sign}{abs(float(change_rate)):.2f}%)" if change_rate is not None else ""
 
-    return "\n".join(lines)
+        block = [
+            f"**{name}**",
+            f"{price_str}  {change_str} {rate_str}".strip(),
+        ]
+        sections.append("  \n".join(block))
+
+    sections.append(_SEP)
+    return "\n\n".join(sections)

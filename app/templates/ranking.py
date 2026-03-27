@@ -68,13 +68,13 @@ def format_ranking(data: dict) -> str:
         # sign: "2"=상승, "5"=하락, "3"=보합, 나머지는 changeRate로 판단
         api_sign = str(item.get("sign", ""))
         if api_sign == "2":
-            sign = "▲"
+            sign = "🔺"
         elif api_sign == "5":
-            sign = "▼"
+            sign = "🔻"
         elif float(change_rate or 0) > 0:
-            sign = "▲"
+            sign = "🔺"
         elif float(change_rate or 0) < 0:
-            sign = "▼"
+            sign = "🔻"
         else:
             sign = None  # 보합
         rate_str = f"{sign}{abs(float(change_rate or 0)):.2f}%" if sign else "0.00%"
