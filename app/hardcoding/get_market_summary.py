@@ -1,5 +1,12 @@
 """
-도구 1: get_market_summary - 내부 DB 조회 (시황 요약 및 종목별 뉴스 요약)
+(8)  한국 시황 요약 조회 — dispatcher 의도: korea_summary → get_market_summary(type="korea")      → format_korea_summary()
+(9)  미국 시황 요약 조회 — dispatcher 의도: us_summary    → get_market_summary(type="us")         → format_us_summary()
+(10) 종목별 뉴스 요약    — dispatcher 의도: stock_news    → get_market_summary(type="stock_news")  → format_stock_news()
+
+데이터 소스: MongoDB sollite DB
+  sollite.news            — 한국(KOSDAQ)/미국(NASDAQ) 시황 (published_at 최신 1건)
+  sollite.stock_news      — 종목별 뉴스 요약 (해당 stock_code 최신 3건)
+  Oracle instruments      — 한글 종목명 → stock_code 변환 (resolve_stock_code)
 """
 from typing import Literal
 from app.db.mongo import get_sollite_news_collection, get_sollite_stock_news_collection

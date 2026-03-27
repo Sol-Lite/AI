@@ -89,8 +89,9 @@ def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
         return {"reply": "어떤 종목의 시세를 조회할까요? 종목명이나 코드를 알려주세요.\n예) 삼성전자 시세, 005930 주가"}
     data = get_market_data(type="price", stock_code=stock_code)
     if isinstance(data, dict) and data.get("error"):
-        msg = data.get("message", stock_code)
-        return {"reply": f"종목을 찾을 수 없습니다: {msg}"}
+        if data.get("error") == "not_found":
+            return {"reply": f"'{stock_code}' 종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
+        return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
     return {"reply": format_chart_price(data)}
 
 

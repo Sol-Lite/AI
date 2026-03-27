@@ -1,5 +1,16 @@
 """
-도구 3: get_market_data - LS증권 API 연동 (실시간 시장 데이터: 시세/차트/랭킹/지수/환율)
+(1) 지수 조회      — dispatcher 의도: index         → get_market_data(type="index")         → format_index()
+(2) 환율 조회      — dispatcher 의도: exchange_rate → get_market_data(type="exchange")       → format_exchange_rate()
+(3) 주식 순위 조회 — dispatcher 의도: ranking       → get_market_data(type="ranking")        → format_ranking()
+(4) 차트+시세 조회 — dispatcher 의도: chart_price   → get_market_data(type="price")          → format_chart_price()
+
+데이터 소스: Spring API (localhost:8080)
+  GET /api/market/indices                      — 지수
+  GET /api/market/exchange                     — 환율
+  GET /api/market/stocks/ranking               — 주식 순위
+  GET /api/market/stocks/{code}/price          — 현재가
+  GET /api/market/stocks/{code}/daily          — 당일 고/저/시/종가
+  GET /api/market/stocks/{code}/chart          — 기간별 차트 (일/주/월/년)
 """
 import re
 import requests
@@ -37,9 +48,8 @@ def _resolve(stock_code: str | None) -> tuple[str | None, dict | None]:
     return stock_code, None
 
 
-# 시세 조회, 차트, 랭킹, 지수, 환율 등 시장 데이터 조회를 위한 도구 함수
 def get_market_data(type: str, **kwargs):
-    # stock_code가 필요한 type은 먼저 종목명 → 코드 변환
+    # price / daily / period_chart 는 종목 코드 필요 → 한글 종목명이면 Oracle DB에서 코드 조회
     if type in _STOCK_CODE_TYPES:
         stock_code, err = _resolve(kwargs.get("stock_code"))
         if err:
@@ -63,7 +73,6 @@ def get_market_data(type: str, **kwargs):
             kwargs.get("end_date"),
         )
     elif type == "ranking":
-        return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
         return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
 
     elif type == "exchange":

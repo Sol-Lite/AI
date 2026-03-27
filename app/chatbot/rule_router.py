@@ -18,6 +18,7 @@
     unknown         - 인식 불가
 """
 import re
+from app.chatbot.stock_resolver import resolve_from_csv
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {
@@ -196,24 +197,27 @@ def detect(message: str) -> tuple[str, dict]:
 
 def _extract_stock(message: str) -> str | None:
     """
-    메시지에서 종목 코드 또는 종목명을 추출합니다.
-    우선순위: 6자리 숫자 → 영문 대문자 티커 → 한글 종목명
+    메시지에서 종목코드를 추출합니다.
+
+    우선순위:
+      1. 6자리 숫자          → 국내 종목코드 (예: 005930)
+      2. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL)
+      3. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
     """
-    # 국내 종목코드: 6자리 숫자
+    # 1. 국내 종목코드: 6자리 숫자
     m = re.search(r'\b(\d{6})\b', message)
     if m:
         return m.group(1)
 
-    # 미국 티커: 2~5자리 영문 대문자
+    # 2. 미국 티커: 2~5자리 영문 대문자
     m = re.search(r'\b([A-Z]{2,5})\b', message)
     if m:
         return m.group(1)
 
-    # 한글 종목명: 무시 단어를 제외한 2자 이상 한글 단어
-    korean_words = re.findall(r'[가-힣]{2,}', message)
-    for word in korean_words:
-        if word not in _IGNORE_WORDS:
-            return word
+    # 3. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
+    code, _ = resolve_from_csv(message)
+    if code:
+        return code
 
     return None
 
