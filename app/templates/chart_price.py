@@ -40,27 +40,30 @@ def format_chart_price(data: dict) -> str:
     else:
         sign = "-"
 
-    header = f"■ {stock_name} ({stock_code})" if stock_code else f"■ {stock_name}"
+    header = f"**{stock_name} ({stock_code})**" if stock_code else f"**{stock_name}**"
 
-    lines = [
-        header,
-        _SEP,
-        f"현재가      {current:>13,.0f}원",
-        f"전일 대비   {sign} {abs(change):,.0f}원  ({sign}{abs(change_rate):.2f}%)",
+    sections = [header, _SEP]
+
+    # 현재가 + 전일 대비
+    price_block = [
+        f"**{current:,.0f}원**",
+        f"전일 대비  {sign} {abs(change):,.0f}원  ({sign}{abs(change_rate):.2f}%)",
     ]
+    sections.append("  \n".join(price_block))
 
+    # 시가 / 고가 / 저가
     if open_price or high or low:
-        lines += [
-            _SEP,
-            f"시가        {open_price:>13,.0f}원",
-            f"고가        {high:>13,.0f}원",
-            f"저가        {low:>13,.0f}원",
+        ohlc_block = [
+            "**시가 / 고가 / 저가**",
+            f"시가  {open_price:>13,.0f}원",
+            f"고가  {high:>13,.0f}원",
+            f"저가  {low:>13,.0f}원",
         ]
+        sections.append("  \n".join(ohlc_block))
 
+    # 거래량
     if volume:
-        lines += [
-            _SEP,
-            f"거래량      {volume:>13,}주",
-        ]
+        sections.append(f"**거래량**  {volume:,}주")
 
-    return "\n".join(lines)
+    sections.append(_SEP)
+    return "\n\n".join(sections)
