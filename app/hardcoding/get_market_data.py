@@ -179,12 +179,12 @@ def _fetch_daily(stock_code: str, date: str) -> dict:
 _VALID_RANKING_TYPES = {"trading-volume", "trading-value", "rising", "falling", "market-cap"}
 
 
-def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:  # noqa: ARG001
+def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:
     is_default = ranking_type not in _VALID_RANKING_TYPES
     api_type = ranking_type if not is_default else "trading-volume"
     stocks = _call_spring_api(
         "/api/market/stocks/ranking",
-        {"type": type, "market": market}
+        {"type": api_type}
     )
     return {
         "type":       api_type,

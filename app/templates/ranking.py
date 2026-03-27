@@ -2,7 +2,7 @@
 랭킹 응답 템플릿
 """
 
-_SEP = "─" * 24
+_SEP = "━" * 22
 
 _RANKING_TYPE_LABEL = {
     "trading-volume": "거래량 상위",
@@ -41,23 +41,24 @@ def format_ranking(data: dict) -> str:
         stocks       = data
         ranking_type = ""
         market       = "domestic"
+        is_default   = False
     else:
         ranking_type = data.get("type", "")
         market       = data.get("market", "domestic")
         stocks       = data.get("stocks") or []
         is_default   = data.get("is_default", False)
 
-    label        = _RANKING_TYPE_LABEL.get(ranking_type, "순위")
-    market_label = "해외" if market == "overseas" else "국내"
+    label = _RANKING_TYPE_LABEL.get(ranking_type, "순위")
 
-    lines = [f"{market_label} {label} TOP 10", _SEP]
+    sections = [f"**국내 {label} TOP 10**", _SEP]
+
     if is_default:
-        lines.append("※ 요청하신 순위 유형을 정확히 인식하지 못해 거래량 순위로 보여드립니다.")
-        lines.append("")
+        sections.append("※ 요청하신 순위 유형을 정확히 인식하지 못해 거래량 순위로 보여드립니다.")
 
     if not stocks:
-        lines.append("데이터가 없습니다.")
-        return "\n".join(lines)
+        sections.append("데이터가 없습니다.")
+        sections.append(_SEP)
+        return "\n\n".join(sections)
 
     for item in stocks[:10]:
         rank        = item.get("rank") or item.get("Rank", "")
@@ -77,9 +78,15 @@ def format_ranking(data: dict) -> str:
             sign = "🔻"
         else:
             sign = None  # 보합
-        rate_str = f"{sign}{abs(float(change_rate or 0)):.2f}%" if sign else "0.00%"
-        lines.append(
-            f"  {rank:>2}위  {name:<12}  {float(price or 0):>10,.0f}원  {rate_str}"
-        )
 
-    return "\n".join(lines)
+        rate_str  = f"{sign}{abs(float(change_rate or 0)):.2f}%" if sign else "0.00%"
+        price_str = f"{float(price or 0):,.0f}원"
+
+        block = [
+            f"**{rank}위  {name}**",
+            f"{price_str}  {rate_str}",
+        ]
+        sections.append("  \n".join(block))
+
+    sections.append(_SEP)
+    return "\n\n".join(sections)

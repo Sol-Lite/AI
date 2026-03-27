@@ -70,7 +70,13 @@ _PATTERNS: dict[str, list[str]] = {
         r"시세",
         r"주가",
         r"현재가",
-        r"얼마",
+        r"고가",
+        r"시가(?!총액)",   # "시가총액"은 ranking에서 처리
+        r"종가",
+        r"최고가",
+        r"최저가",
+        r"상한가",
+        r"하한가",
     ],
     # (3) 주식 순위
     "ranking": [
@@ -82,6 +88,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"거래량\s*순",
         r"거래대금\s*순",
         r"시가총액\s*순",
+        r"급상승",
+        r"급하락",
     ],
     # (8) 한국 시황 — index 보다 먼저 검사
     "korea_summary": [
@@ -237,13 +245,13 @@ def _extract_ranking_type(message: str) -> str:
         return "falling"
     if re.search(r"시가총액", message):
         return "market-cap"
-    return "trading-volume"  # 기본값
+    return "trading-value"  # 기본값
 
 
-def _extract_market(message: str) -> str:
-    if re.search(r"해외|미국|나스닥|뉴욕|NYSE|NASDAQ", message, re.IGNORECASE):
-        return "overseas"
-    return "domestic"
+# def _extract_market(message: str) -> str:
+#     if re.search(r"해외|미국|나스닥|뉴욕|NYSE|NASDAQ", message, re.IGNORECASE):
+#         return "overseas"
+#     return "domestic"
 
 
 def _extract_currency_pair(message: str) -> str:
@@ -263,7 +271,6 @@ def _extract_params(intent: str, message: str) -> dict:
     if intent == "ranking":
         return {
             "ranking_type": _extract_ranking_type(message),
-            "market": _extract_market(message),
         }
 
     if intent == "exchange_rate":
