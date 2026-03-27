@@ -201,16 +201,23 @@ def _fetch_index():
 # ── exchange ──────────────────────────────────────────────────────────────────
 
 def _fetch_exchange(currency_pair: str | None) -> dict:
-    # TODO: Spring API 환율 엔드포인트 확정 시 path 교체
     pair = currency_pair or "USDKRW"
-    data = _call_spring_api(
-        "/api/market/exchange",
-        {"currencyPair": pair},
-    )
-    if data.get("error"):
-        return {"currency_pair": pair, "rate": 0.0, "change": 0.0}
-    return {
-        "currency_pair": pair,
-        "rate":   data.get("rate", 0.0),
-        "change": data.get("change", 0.0),
-    }
+
+    # USD/KRW는 /api/market/indices 에서 가져옴
+    if pair == "USDKRW":
+        indices = _call_spring_api("/api/market/indices")
+        if isinstance(indices, list):
+            usd_item = next(
+                (i for i in indices
+                 if "USD" in i.get("name", "").upper() or "달러" in i.get("name", "")),
+                None,
+            )
+            if usd_item:
+                return {
+                    "currency_pair": pair,
+                    "rate":        float(usd_item.get("price")      or 0),
+                    "change":      float(usd_item.get("change")     or 0),
+                    "change_rate": float(usd_item.get("changeRate") or 0),
+                }
+
+    return {"currency_pair": pair, "rate": 0.0, "change": 0.0, "change_rate": 0.0}
