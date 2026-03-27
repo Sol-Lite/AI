@@ -42,7 +42,6 @@
 # main.py
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
-from typing import Any
 from app.core.auth import get_user_context
 from app.chatbot.rule_router import detect
 from app.chatbot.dispatcher import dispatch
@@ -55,12 +54,9 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    type: str = "text"          # "text" | "order" | "exchange"
     reply: str
-    action: str | None = None
-    # 프론트엔드 액션 파라미터
-    # activate_buy / activate_sell: {"stock_code": str}
-    # activate_exchange: {}
-    action_params: dict[str, Any] | None = None
+    stock_code: str | None = None   # type="order" 일 때 프론트가 현재가 조회에 사용
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -71,7 +67,7 @@ async def chat_endpoint(
     intent, params = detect(req.message)
     result = dispatch(intent, params, user_context, original_message=req.message)
     return ChatResponse(
+        type=result.get("type", "text"),
         reply=result.get("reply", ""),
-        action=result.get("action"),
-        action_params=result.get("action_params"),
+        stock_code=result.get("stock_code"),
     )
