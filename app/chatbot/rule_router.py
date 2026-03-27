@@ -230,15 +230,9 @@ def _extract_stock(message: str) -> tuple[str | None, str | None]:
     메시지에서 (종목코드, 종목명)을 추출합니다.
 
     우선순위:
-<<<<<<< HEAD
       1. 6자리 숫자          → 국내 종목코드 (예: 005930)
       2. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
       3. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL)
-=======
-      1. 6자리 숫자          → 국내 종목코드 (예: 005930), 종목명 None
-      2. 2~5자리 영문 대문자 → 미국 티커     (예: AAPL),   종목명 = 티커
-      3. CSV 종목명 매칭     → kospi200_targets.csv / NASDAQ100.csv에서 한글 종목명 검색
->>>>>>> origin/final
     """
     # 영문-한글 경계 공백 제거 ("SK 하이닉스" → "SK하이닉스")
     normalized = _normalize_message(message)
@@ -248,33 +242,18 @@ def _extract_stock(message: str) -> tuple[str | None, str | None]:
     if m:
         return m.group(1), None
 
-<<<<<<< HEAD
     # 2. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
     #    ticker 검사보다 먼저: "SK하이닉스"가 "SK" 티커로 잡히는 문제 방지
     code, _ = resolve_from_csv(normalized)
-=======
-    # 2. 미국 티커: 2~5자리 영문 대문자
-    m = re.search(r'\b([A-Z]{2,5})\b', message)
-    if m:
-        ticker = m.group(1)
-        return ticker, ticker
-
-    # 3. CSV에서 한글 종목명 → 종목코드 변환 (긴 이름 우선 매칭)
-    code, name = resolve_from_csv(message)
->>>>>>> origin/final
     if code:
         return code, name
 
-<<<<<<< HEAD
     # 3. 미국 티커: 2~5자리 영문 대문자
     m = re.search(r'\b([A-Z]{2,5})\b', normalized)
     if m:
         return m.group(1)
 
     return None
-=======
-    return None, None
->>>>>>> origin/final
 
 
 def _extract_ranking_type(message: str) -> str:
