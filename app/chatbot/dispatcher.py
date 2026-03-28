@@ -26,20 +26,7 @@ from app.templates.chart_price import format_chart_price
 from app.templates.exchange_rate import format_exchange_rate
 from app.templates.account import format_balance
 from app.templates.stock_news import format_korea_summary, format_us_summary, format_stock_news
-
-_UNKNOWN_REPLY = (
-    "죄송합니다, 요청을 정확히 이해하지 못했어요.\n"
-    "아래 기능을 이용해 보세요:\n"
-    "  • 지수 조회 (코스피, 코스닥, 나스닥 등)\n"
-    "  • 환율 조회 (달러, 유로, 엔화)\n"
-    "  • 주식 순위 조회 (거래량, 상승률 등)\n"
-    "  • 종목 시세/차트 조회\n"
-    "  • 잔고 조회\n"
-    "  • 매수 / 매도\n"
-    "  • 환전\n"
-    "  • 한국/미국 시황 요약\n"
-    "  • 종목별 뉴스 요약"
-)
+from app.templates.guide import _GUIDE_MESSAGE, _FALLBACK_MESSAGE
 
 
 def dispatch(intent: str, params: dict, user_context: dict, original_message: str = "") -> dict:
@@ -58,6 +45,9 @@ def dispatch(intent: str, params: dict, user_context: dict, original_message: st
 
 
 # ── 핸들러 함수 ───────────────────────────────────────────────────────────────
+
+def _handle_greeting(params: dict, user_context: dict, message: str) -> dict:
+    return {"reply": _GUIDE_MESSAGE}
 
 def _handle_index(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_data(type="index")
@@ -85,6 +75,7 @@ def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
 
 def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
     stock_code = params.get("stock_code")
+    account_id = user_context.get("account_id", "")
     if not stock_code:
         return {"reply": "어떤 종목의 시세를 조회할까요? 종목명이나 코드를 알려주세요.\n예) 삼성전자 시세, 005930 주가"}
     data = get_market_data(type="price", stock_code=stock_code)
@@ -92,14 +83,16 @@ def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
         if data.get("error") == "not_found":
             return {"reply": f"'{stock_code}' 종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
         return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_chart_price(data)}
+    tool_ctx = _get_tool_context("get_stock_price", {"stock_code": stock_code}, data)
+    return {"reply": format_chart_price(data), "_tool_context": tool_ctx}
 
 
 def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
     data = get_db_data(type="balance", user_context=user_context)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "잔고 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_balance(data)}
+    balance_type = params.get("balance_type", "summary")
+    return {"reply": format_balance(data, balance_type=balance_type)}
 
 
 def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
@@ -131,7 +124,7 @@ def _handle_sell_intent(params: dict, user_context: dict, message: str) -> dict:
 def _handle_exchange_order(params: dict, user_context: dict, message: str) -> dict:
     return {
         "type":  "exchange",
-        "reply": "환전 화면을 활성화합니다.",
+        "reply": "환전 정보를 입력하세요:",
     }
 
 
@@ -140,27 +133,55 @@ def _handle_market_summary(params: dict, user_context: dict, message: str) -> di
     us    = get_market_summary(type="us")
     korea_text = format_korea_summary(korea)
     us_text    = format_us_summary(us)
-    return {"reply": f"{korea_text}\n\n{us_text}"}
+    tool_ctx = (
+        _get_tool_context("get_market_summary", {"market": "korea"}, korea)
+        + _get_tool_context("get_market_summary", {"market": "us"}, us)
+    )
+    return {"reply": f"{korea_text}\n\n{us_text}", "_tool_context": tool_ctx}
 
 
 def _handle_korea_summary(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_summary(type="korea")
-    return {"reply": format_korea_summary(data)}
+    tool_ctx = _get_tool_context("get_market_summary", {"market": "korea"}, data)
+    return {"reply": format_korea_summary(data), "_tool_context": tool_ctx}
 
 
 def _handle_us_summary(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_summary(type="us")
-    return {"reply": format_us_summary(data)}
+    tool_ctx = _get_tool_context("get_market_summary", {"market": "us"}, data)
+    return {"reply": format_us_summary(data), "_tool_context": tool_ctx}
+
+
+_SECTOR_GUIDE = (
+    "섹터/업종별 뉴스는 제공하지 않아요.  \n"
+    "아래 기능을 이용해 주세요.  \n\n"
+    "• 종목별 뉴스  \n"
+    "　예) 삼성전자 뉴스  \n\n"
+    "• 한국 시황  \n"
+    "　예) 오늘 국내 시황  \n\n"
+    "• 미국 시황  \n"
+    "　예) 미국 시장 어때"
+)
 
 
 def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
+    from app.chatbot.stock_resolver import _SECTOR_KEYWORDS
     stock_code = params.get("stock_code")
+    account_id = user_context.get("account_id", "")
+
+    # 섹터/테마 키워드 질문이면 안내 메시지 반환
+    if not stock_code or stock_code.lower() in _SECTOR_KEYWORDS:
+        msg_lower = message.lower()
+        if any(kw in msg_lower for kw in _SECTOR_KEYWORDS):
+            return {"reply": _SECTOR_GUIDE}
+
     if not stock_code:
         return {"reply": "어떤 종목의 기사를 조회할까요? 종목명을 알려주세요.\n예) 신한지주 기사"}
     data = get_market_summary(type="stock_news", stock_code=stock_code)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": data["error"]}
-    return {"reply": format_stock_news(data)}
+    tool_ctx = _get_tool_context("get_stock_news", {"stock_code": stock_code}, data)
+    return {"reply": format_stock_news(data), "_tool_context": tool_ctx}
 
 
 _PORTFOLIO_SIMPLE_RE = re.compile(
@@ -180,9 +201,17 @@ _TRADES_BY_DATE_RE = re.compile(
 )
 
 
+def _get_tool_context(tool_name: str, args: dict, result: dict) -> list:
+    """템플릿 경로용 tool_call + tool_result 메시지 목록을 반환합니다. 저장은 main.py가 담당."""
+    import json
+    return [
+        {"role": "assistant", "tool_calls": [{"function": {"name": tool_name, "arguments": args}}]},
+        {"role": "tool", "name": tool_name, "content": json.dumps(result, ensure_ascii=False)},
+    ]
+
+
 def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
     from app.templates.portfolio import format_portfolio
-    from app.templates.trades import format_trades, format_trades_by_date
 
     msg = message.strip()
     account_id = user_context.get("account_id", "")
@@ -191,16 +220,19 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
     if _PORTFOLIO_SIMPLE_RE.match(msg):
         try:
             from app.agent.portfolio_tools import get_portfolio_summary
-            return {"reply": format_portfolio(get_portfolio_summary(account_id))}
+            data = get_portfolio_summary(account_id)
+            tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": "holdings"}, data)
+            return {"reply": format_portfolio(data), "_tool_context": tool_ctx}
         except Exception:
             pass
 
-    # 그 외 포트폴리오 질문 → portfolio agent
+    # 그 외 포트폴리오 질문 → agent
     try:
-        from app.agent.llm_agent import ask_portfolio
-        return {"reply": ask_portfolio(user_context, message)}
+        from app.agent.llm_agent import ask_general
+        reply, tool_ctx = ask_general(user_context, message)
+        return {"reply": reply, "_tool_context": tool_ctx}
     except Exception:
-        return {"reply": "포트폴리오 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+        return {"reply": _FALLBACK_MESSAGE}
 
 
 def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
@@ -215,7 +247,10 @@ def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
             from app.agent.trade_tools import get_trades_by_date
             m = re.search(r"\d{1,2}월\s*\d{1,2}일|\d{4}-\d{2}-\d{2}|\d{2}-\d{2}", msg)
             if m:
-                return {"reply": format_trades_by_date(get_trades_by_date(account_id, m.group()))}
+                data = get_trades_by_date(account_id, m.group())
+                tool_ctx = _get_tool_context("get_trade_history",
+                                             {"query_type": "by_date", "date": m.group()}, data)
+                return {"reply": format_trades_by_date(data), "_tool_context": tool_ctx}
         except Exception:
             pass
 
@@ -223,30 +258,40 @@ def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
     if _TRADES_SIMPLE_RE.match(msg):
         try:
             from app.agent.trade_tools import get_trades_template_data
-            return {"reply": format_trades(get_trades_template_data(account_id))}
+            data = get_trades_template_data(account_id)
+            tool_ctx = _get_tool_context("get_trade_history", {"query_type": "recent"}, data)
+            return {"reply": format_trades(data), "_tool_context": tool_ctx}
         except Exception:
             pass
 
-    # 그 외 거래내역 질문 → trades agent
+    # 그 외 거래내역 질문 → agent
     try:
-        from app.agent.llm_agent import ask_trades
-        return {"reply": ask_trades(user_context, message)}
+        from app.agent.llm_agent import ask_general
+        reply, tool_ctx = ask_general(user_context, message)
+        return {"reply": reply, "_tool_context": tool_ctx}
     except Exception:
-        return {"reply": "거래내역 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+        return {"reply": _FALLBACK_MESSAGE}
 
 
 def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
+    # 섹터/테마 키워드가 포함된 질문 → 안내 메시지
+    from app.chatbot.stock_resolver import _SECTOR_KEYWORDS
+    if any(kw in message.lower() for kw in _SECTOR_KEYWORDS):
+        return {"reply": _SECTOR_GUIDE}
+
     # 그 외 모든 자연어 → general agent
     try:
         from app.agent.llm_agent import ask_general
-        return {"reply": ask_general(user_context, message)}
+        reply, tool_ctx = ask_general(user_context, message)
+        return {"reply": reply, "_tool_context": tool_ctx}
     except Exception:
-        return {"reply": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."}
+        return {"reply": _FALLBACK_MESSAGE}
 
 
 # ── 핸들러 매핑 테이블 ────────────────────────────────────────────────────────
 
 _HANDLERS = {
+    "greeting":       _handle_greeting,
     "index":          _handle_index,
     "exchange_rate":  _handle_exchange_rate,
     "ranking":        _handle_ranking,

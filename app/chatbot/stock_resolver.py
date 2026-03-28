@@ -18,6 +18,13 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+# 섹터/테마 키워드 (종목명이 아닌 것들)
+_SECTOR_KEYWORDS = {
+    "바이오", "반도체", "제약", "화학", "자동차", "it", "금융", "에너지",
+    "헬스케어", "게임", "엔터", "식품", "건설", "철강", "전기차", "배터리",
+    "2차전지", "항공", "조선", "보험", "은행", "유통", "통신", "방산",
+}
+
 # CSV 파일 위치: AI/ 루트
 _CSV_DIR = Path(__file__).parent.parent.parent
 

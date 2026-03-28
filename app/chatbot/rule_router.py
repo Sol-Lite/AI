@@ -22,9 +22,23 @@ from app.chatbot.stock_resolver import resolve_from_csv, _normalize_message
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {
+    # 인사 / 시작
+    "greeting": [
+        r"^안녕",
+        r"^hi$",
+        r"^hello$",
+        r"^헬로",
+        r"^반가",
+        r"^처음\s*왔",
+        r"^뭐\s*할\s*수\s*있",
+        r"^뭐\s*돼",
+        r"^도움말",
+        r"^기능",
+        r"^사용법",
+    ],
     # (6) 매수 — 반드시 ranking/index 등보다 먼저 검사
     "buy_intent": [
-        r"매수(?!한|했|하였|내역|기록|이력)",
+        r"매수(?!\s*한|\s*했|\s*하였|\s*내역|\s*기록|\s*이력)",
         r"사고\s*싶",
         r"사",
         r"살게",
@@ -42,10 +56,11 @@ _PATTERNS: dict[str, list[str]] = {
         r"구매",
         r"매입",
         r"매매",
+        r"주문",
     ],
     # (6) 매도
     "sell_intent": [
-        r"매도(?!한|했|하였|내역|기록|이력)",
+        r"매도(?!\s*한|\s*했|\s*하였|\s*내역|\s*기록|\s*이력)",
         r"팔고\s*싶",
         r"팔게",
         r"팔아보려고",
@@ -93,6 +108,7 @@ _PATTERNS: dict[str, list[str]] = {
         r"가용\s*금액",
         r"총\s*자산",
         r"현금\s*잔고",
+        r"내\s*자산(?!\s*(분석|수익률|현황|비중))",
     ],
     # (10) 종목별 뉴스 — chart_price 보다 먼저 검사
     "stock_news": [
@@ -143,19 +159,23 @@ _PATTERNS: dict[str, list[str]] = {
         r"하락률\s*높",
         r"거래량\s*순",
         r"거래량\s*기준",
+        r"거래량\s*으로",
         r"거래량\s*많",
         r"거래대금\s*순",
+        r"거래대금\s*으로",
         r"거래대금\s*기준",
         r"거래대금\s*많",
         r"시가총액\s*순",
         r"시총\s*순",
+        r"시총\s*으로",
         r"시가총액\s*기준",
+        r"시가총액\s*으로",
         r"시총\s*기준",
         r"시총",
         r"급상승",
         r"급하락",
     ],
-    # (8) 한국 시황 — index 보다 먼저 검사
+    # (8) 한국 시황 — 한국/코스피 특정 키워드만
     "korea_summary": [
         r"한국\s*시황",
         r"국내\s*시황",
@@ -167,13 +187,19 @@ _PATTERNS: dict[str, list[str]] = {
         r"국장",
         r"코스피\s*시장",
         r"코스닥\s*시장",
+        r"국내\s*증시",
+        r"한국\s*증시",
+    ],
+    # (8-2) 한국+미국 시황 동시 — 범용 키워드 (korea/us_summary 보다 나중에 검사)
+    "market_summary": [
+        r"시황",
+        r"시장",
+        r"시장\s*어때",
         r"오늘\s*시황",
         r"오늘\s*시장",
         r"오늘\s*장",
         r"장\s*어때",
         r"장\s*상황",
-        r"국내\s*증시",
-        r"한국\s*증시",
         r"증시\s*어때",
     ],
     # (9) 미국 시황
@@ -257,11 +283,14 @@ _PATTERNS: dict[str, list[str]] = {
         r"수익률",
         r"손익",
         r"내\s*자산",
+        r"섹터\s*비중",
+        r"업종\s*비중",
     ],
 }
 
 # 의도 검사 우선순위 (앞에 있을수록 먼저 검사)
 _PRIORITY = [
+    "greeting",
     "buy_intent",
     "sell_intent",
     "exchange_order",
@@ -269,10 +298,13 @@ _PRIORITY = [
     "stock_news",
     "korea_summary",
     "us_summary",
+    "market_summary", # 범용 시황 — 한국/미국 특정 키워드가 없을 때
     "index",          # chart_price보다 먼저: "코스피 얼마야" 등이 chart_price로 잘못 잡히는 문제 방지
     "chart_price",
     "ranking",
     "exchange_rate",
+    "trades",         # 거래내역 조회
+    "portfolio",      # 포트폴리오 분석
 ]
 
 # 파라미터 추출 시 무시할 한글 단어 목록
@@ -346,9 +378,9 @@ def _extract_ranking_type(message: str) -> str:
         return "trading-value"
     if re.search(r"거래량", message):
         return "trading-volume"
-    if re.search(r"상승", message):
+    if re.search(r"상승|많이\s*오른|많이\s*올랐|급등|올랐", message):
         return "rising"
-    if re.search(r"하락", message):
+    if re.search(r"하락|많이\s*내린|많이\s*떨어|급락|떨어졌", message):
         return "falling"
     if re.search(r"시가총액|시총", message):
         return "market-cap"
@@ -371,9 +403,27 @@ def _extract_currency_pair(message: str) -> str:
     return "USDKRW"  # 기본값: 달러/원
 
 
+def _extract_balance_type(message: str) -> str:
+    if re.search(r"총\s*자산", message):
+        return "total_assets"
+    if re.search(r"현금|잔고|잔액|예수금|가용|투자\s*가능", message):
+        return "cash"
+    return "summary"  # 기본값: 전체 요약
+
+
 def _extract_params(intent: str, message: str) -> dict:
-    if intent in ("chart_price", "stock_news", "buy_intent", "sell_intent"):
+    if intent in ("chart_price", "stock_news"):
         return {"stock_code": _extract_stock(message)}
+
+    if intent in ("buy_intent", "sell_intent"):
+        normalized = _normalize_message(message)
+        code, name = resolve_from_csv(normalized)
+        if not code:
+            code = _extract_stock(message)
+        return {"stock_code": code, "stock_name": name}
+
+    if intent == "balance":
+        return {"balance_type": _extract_balance_type(message)}
 
     if intent == "ranking":
         return {

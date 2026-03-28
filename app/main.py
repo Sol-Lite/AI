@@ -64,8 +64,21 @@ async def chat_endpoint(
     req: ChatRequest,
     user_context: dict = Depends(get_user_context),
 ) -> ChatResponse:
+    account_id = str(user_context.get("account_id", ""))
+
     intent, params = detect(req.message)
     result = dispatch(intent, params, user_context, original_message=req.message)
+
+    # user + tool_context(있으면) + assistant 를 한 턴으로 저장
+    try:
+        from app.db.mongo import save_conversation_turn
+        turn_messages = [{"role": "user", "content": req.message}]
+        turn_messages.extend(result.get("_tool_context") or [])
+        turn_messages.append({"role": "assistant", "content": result.get("reply", "")})
+        save_conversation_turn(account_id, turn_messages)
+    except Exception:
+        pass
+
     return ChatResponse(
         type=result.get("type", "text"),
         reply=result.get("reply", ""),
