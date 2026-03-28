@@ -171,10 +171,18 @@ _TRADES_SIMPLE_RE = re.compile(
 )
 
 
-def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
-    from app.agent.llm_agent import ask_general
+_TRADES_BY_DATE_RE = re.compile(
+    r"(\d{1,2}월\s*\d{1,2}일|\d{4}-\d{2}-\d{2}|\d{2}-\d{2})"
+    r".*?(거래\s*내역|거래내역|체결\s*내역|매매\s*내역)"
+    r"|"
+    r"(거래\s*내역|거래내역|체결\s*내역|매매\s*내역)"
+    r".*?(\d{1,2}월\s*\d{1,2}일|\d{4}-\d{2}-\d{2}|\d{2}-\d{2})"
+)
+
+
+def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
     from app.templates.portfolio import format_portfolio
-    from app.templates.trades import format_trades
+    from app.templates.trades import format_trades, format_trades_by_date
 
     msg = message.strip()
     account_id = user_context.get("account_id", "")
@@ -187,6 +195,30 @@ def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
         except Exception:
             pass
 
+    # 그 외 포트폴리오 질문 → portfolio agent
+    try:
+        from app.agent.llm_agent import ask_portfolio
+        return {"reply": ask_portfolio(user_context, message)}
+    except Exception:
+        return {"reply": "포트폴리오 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+
+
+def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
+    from app.templates.trades import format_trades, format_trades_by_date
+
+    msg = message.strip()
+    account_id = user_context.get("account_id", "")
+
+    # 날짜별 거래내역 조회 → 템플릿
+    if _TRADES_BY_DATE_RE.search(msg):
+        try:
+            from app.agent.trade_tools import get_trades_by_date
+            m = re.search(r"\d{1,2}월\s*\d{1,2}일|\d{4}-\d{2}-\d{2}|\d{2}-\d{2}", msg)
+            if m:
+                return {"reply": format_trades_by_date(get_trades_by_date(account_id, m.group()))}
+        except Exception:
+            pass
+
     # 단순 거래내역 조회 → 템플릿
     if _TRADES_SIMPLE_RE.match(msg):
         try:
@@ -195,8 +227,18 @@ def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
         except Exception:
             pass
 
+    # 그 외 거래내역 질문 → trades agent
+    try:
+        from app.agent.llm_agent import ask_trades
+        return {"reply": ask_trades(user_context, message)}
+    except Exception:
+        return {"reply": "거래내역 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요."}
+
+
+def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
     # 그 외 모든 자연어 → general agent
     try:
+        from app.agent.llm_agent import ask_general
         return {"reply": ask_general(user_context, message)}
     except Exception:
         return {"reply": "요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."}
@@ -217,6 +259,8 @@ _HANDLERS = {
     "korea_summary":  _handle_korea_summary,
     "us_summary":     _handle_us_summary,
     "stock_news":     _handle_stock_news,
+    "portfolio":      _handle_portfolio,
+    "trades":         _handle_trades,
     "unknown":        _handle_unknown,
 }
 

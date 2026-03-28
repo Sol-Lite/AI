@@ -20,8 +20,8 @@ def get_trade_summary(account_id: str) -> dict:
     sql = """
         SELECT
             COUNT(DISTINCT ORDER_ID)                                             AS total,
-            COUNT(DISTINCT CASE WHEN ORDER_SIDE = 'buy'  THEN ORDER_ID END)     AS buy_count,
-            COUNT(DISTINCT CASE WHEN ORDER_SIDE = 'sell' THEN ORDER_ID END)     AS sell_count
+            COUNT(DISTINCT CASE WHEN ORDER_SIDE = 'BUY'  THEN ORDER_ID END)     AS buy_count,
+            COUNT(DISTINCT CASE WHEN ORDER_SIDE = 'SELL' THEN ORDER_ID END)     AS sell_count
         FROM executions
         WHERE account_id = :account_id
     """
@@ -53,7 +53,7 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
         "trades": [
             {
                 "stock_name":  row[0],
-                "side":        row[1],
+                "side":        row[1].lower() if row[1] else row[1],
                 "price":       float(row[2] or 0),
                 "quantity":    int(row[3]   or 0),
                 "amount":      float(row[2] or 0) * int(row[3] or 0),
@@ -61,6 +61,52 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
             }
             for row in rows
         ]
+    }
+
+
+def get_trades_by_date(account_id: str, date: str) -> dict:
+    """특정 날짜의 전체 거래 내역을 반환합니다. date 형식: 'YYYY-MM-DD' 또는 'MM-DD' 또는 'M월 D일'"""
+    import re
+    # 다양한 날짜 형식 파싱 → YYYY-MM-DD
+    date = date.strip()
+    m = re.match(r'(\d{4})-(\d{2})-(\d{2})', date)
+    if not m:
+        m = re.match(r'(\d{1,2})월\s*(\d{1,2})일', date)
+        if m:
+            date = f"2026-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+        else:
+            m = re.match(r'(\d{1,2})-(\d{1,2})', date)
+            if m:
+                date = f"2026-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+
+    sql = """
+        SELECT
+            i.STOCK_NAME,
+            ex.ORDER_SIDE,
+            ex.EXECUTION_PRICE,
+            ex.EXECUTION_QUANTITY,
+            ex.EXECUTED_AT
+        FROM executions ex
+        LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
+        WHERE ex.account_id = :account_id
+          AND TRUNC(ex.EXECUTED_AT) = TO_DATE(:trade_date, 'YYYY-MM-DD')
+        ORDER BY ex.EXECUTED_AT DESC
+    """
+    rows = fetch_all(sql, {"account_id": account_id, "trade_date": date}) or []
+    return {
+        "date":  date,
+        "count": len(rows),
+        "trades": [
+            {
+                "stock_name":  row[0],
+                "side":        row[1].lower() if row[1] else row[1],
+                "price":       float(row[2] or 0),
+                "quantity":    int(row[3]   or 0),
+                "amount":      float(row[2] or 0) * int(row[3] or 0),
+                "executed_at": str(row[4]),
+            }
+            for row in rows
+        ],
     }
 
 
@@ -99,7 +145,7 @@ def get_trades_by_stock(account_id: str, stock_code: str) -> dict:
         "count":      len(rows),
         "trades": [
             {
-                "side":        row[1],
+                "side":        row[1].lower() if row[1] else row[1],
                 "price":       float(row[2] or 0),
                 "quantity":    int(row[3]   or 0),
                 "executed_at": str(row[4]),

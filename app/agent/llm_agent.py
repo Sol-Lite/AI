@@ -70,10 +70,27 @@ _TRADE_TOOLS = [
                 "properties": {
                     "stock_code": {
                         "type": "string",
-                        "description": "조회할 종목 코드 (예: 005930, AAPL)",
+                        "description": "조회할 종목 코드 또는 종목명 (예: 005930, 삼성전자, AAPL)",
                     }
                 },
                 "required": ["stock_code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_trades_by_date",
+            "description": "특정 날짜의 전체 거래 내역을 조회합니다. 날짜를 언급한 거래 조회 질문에 사용하세요.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "조회할 날짜 (예: 2026-03-27, 3월 27일, 03-27)",
+                    }
+                },
+                "required": ["date"],
             },
         },
     },
@@ -151,6 +168,7 @@ def _make_trade_executor(account_id: str):
         get_trade_summary,
         get_recent_trades,
         get_trades_by_stock,
+        get_trades_by_date,
     )
 
     def execute(name: str, args: dict) -> str:
@@ -160,6 +178,8 @@ def _make_trade_executor(account_id: str):
             result = get_recent_trades(account_id, limit=args.get("limit", 10))
         elif name == "get_trades_by_stock":
             result = get_trades_by_stock(account_id, stock_code=args["stock_code"])
+        elif name == "get_trades_by_date":
+            result = get_trades_by_date(account_id, date=args["date"])
         else:
             result = {"error": f"Unknown tool: {name}"}
         return json.dumps(result, ensure_ascii=False)
@@ -274,6 +294,7 @@ _TRADES_SYSTEM = """당신은 친근한 주식 투자 어시스턴트입니다.
 
 도구 선택 기준:
 - 특정 종목의 거래 이력을 물으면 → get_trades_by_stock
+- 특정 날짜의 거래를 물으면 → get_trades_by_date
 - 전체 거래내역이나 최근 거래를 물으면 → get_trade_summary + get_recent_trades
 
 날짜/시간 관련 질문(언제 샀지, 몇 월에 팔았지, 최근에 언제 샀지 등)에는 반드시 executed_at 값을 포함해 답하세요.
@@ -354,8 +375,14 @@ _GENERAL_SYSTEM = """당신은 친근한 주식 투자 어시스턴트입니다.
 자연스러운 한국어 구어체로 간결하게 답하세요.
 투자와 전혀 무관한 질문에는 "투자 관련 질문만 답변드릴 수 있어요."라고 안내하세요.
 
+현재가/시세 안내:
+- 현재가, 주가, 시세 정보는 제공하는 도구가 없습니다.
+- 사용자가 특정 종목의 현재 주가나 시세를 물어보는 것 같으면 (예: "하닉은?", "삼전 얼마야?") 도구를 호출하지 말고 아래처럼 안내하세요:
+  "{종목명} 시세라고 입력해 주시면 현재가를 조회해 드릴 수 있어요."
+
 거래내역 관련 규칙:
 - 특정 종목의 거래를 물으면 → get_trades_by_stock 호출
+- 특정 날짜의 거래를 물으면 → get_trades_by_date 호출
 - 날짜/시간 관련 질문(언제 샀지, 최근에 언제 등)에는 반드시 executed_at 값을 포함해 답하세요.
   예) "가장 최근 삼성전자 매수는 2026-03-26이에요."
 - 거래 이력이 없으면 "해당 종목 거래 이력이 없어요."라고 답하세요.
@@ -377,7 +404,7 @@ def _make_general_executor(account_id: str):
     portfolio_exec = _make_portfolio_executor(account_id)
 
     def execute(name: str, args: dict) -> str:
-        trade_names = {"get_trade_summary", "get_recent_trades", "get_trades_by_stock"}
+        trade_names = {"get_trade_summary", "get_recent_trades", "get_trades_by_stock", "get_trades_by_date"}
         if name in trade_names:
             return trade_exec(name, args)
         return portfolio_exec(name, args)

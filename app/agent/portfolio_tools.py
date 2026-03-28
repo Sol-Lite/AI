@@ -17,6 +17,13 @@ template:
 from app.db.oracle import fetch_one, fetch_all
 from app.hardcoding.get_market_data import get_market_data
 
+# DB의 market_type → domestic/overseas 변환
+_DOMESTIC_MARKETS = {"KOSPI", "KOSDAQ"}
+
+
+def _to_market_category(market_type: str) -> str:
+    return "domestic" if (market_type or "").upper() in _DOMESTIC_MARKETS else "overseas"
+
 
 def get_holdings(account_id: str) -> dict:
     """현재 보유 종목 목록과 평가금액을 반환합니다."""
@@ -45,6 +52,7 @@ def get_holdings(account_id: str) -> dict:
         quantity      = float(quantity      or 0)
         avg_buy_price = float(avg_buy_price or 0)
         cost_basis    = float(cost_basis    or 0)
+        market_cat    = _to_market_category(market_type)
 
         price_data    = get_market_data(type="price", stock_code=stock_code)
         current_price = float(price_data.get("current_price") or 0)
@@ -53,21 +61,21 @@ def get_holdings(account_id: str) -> dict:
         return_rate       = 0.0
         if current_price > 0:
             current_value = current_price * quantity
-            current_value_krw = current_value * usdkrw if market_type != "domestic" else current_value
+            current_value_krw = current_value * usdkrw if market_cat == "overseas" else current_value
             if avg_buy_price > 0:
                 return_rate = round((current_price - avg_buy_price) / avg_buy_price * 100, 2)
 
         holdings.append({
-            "stock_code":       stock_code,
-            "stock_name":       stock_name,
-            "sector":           sector,
-            "market_type":      market_type,
-            "quantity":         int(quantity),
-            "avg_buy_price":    avg_buy_price,
-            "cost_basis":       cost_basis,
-            "current_price":    current_price,
+            "stock_code":        stock_code,
+            "stock_name":        stock_name,
+            "sector":            sector or "기타",
+            "market_type":       market_cat,
+            "quantity":          int(quantity),
+            "avg_buy_price":     avg_buy_price,
+            "cost_basis":        cost_basis,
+            "current_price":     current_price,
             "current_value_krw": current_value_krw,
-            "return_rate":      return_rate,
+            "return_rate":       return_rate,
         })
 
     total_cost = sum(h["cost_basis"] for h in holdings) or 1
@@ -160,8 +168,8 @@ def get_sector_concentration(account_id: str) -> dict:
     total = sum(float(row[2] or 0) for row in rows) or 1
     sectors = [
         {
-            "sector":      row[0],
-            "market_type": row[1],
+            "sector":      row[0] or "기타",
+            "market_type": _to_market_category(row[1]),
             "weight":      round(float(row[2] or 0) / total * 100, 1),
         }
         for row in rows
@@ -171,9 +179,9 @@ def get_sector_concentration(account_id: str) -> dict:
         sum(s["weight"] for s in sectors if s["market_type"] == "domestic"), 1
     )
     return {
-        "sectors":          sectors,
-        "domestic_weight":  domestic_weight,
-        "overseas_weight":  round(100 - domestic_weight, 1),
+        "sectors":         sectors,
+        "domestic_weight": domestic_weight,
+        "overseas_weight": round(100 - domestic_weight, 1),
     }
 
 
@@ -201,12 +209,8 @@ def get_portfolio_risk(account_id: str) -> dict:
     mdd_row = fetch_one(mdd_sql, {"account_id": account_id}) or (0,)
     mdd_val = float(mdd_row[0] or 0)
 
-    # 종목별 수익률 (평균단가 기반)
     returns_sql = """
-        SELECT
-            i.stock_name,
-            h.avg_buy_price,
-            h.holding_quantity
+        SELECT i.stock_name, i.stock_code, h.avg_buy_price, h.holding_quantity
         FROM holdings h
         JOIN instruments i ON h.instrument_id = i.instrument_id
         WHERE h.account_id       = :account_id
@@ -215,11 +219,11 @@ def get_portfolio_risk(account_id: str) -> dict:
     rows = fetch_all(returns_sql, {"account_id": account_id}) or []
 
     stock_returns = []
-    for stock_name, avg_buy_price, quantity in rows:
+    for stock_name, stock_code, avg_buy_price, quantity in rows:
         avg_buy_price = float(avg_buy_price or 0)
         if avg_buy_price <= 0:
             continue
-        price_data    = get_market_data(type="price", stock_code=stock_name)
+        price_data    = get_market_data(type="price", stock_code=stock_code)
         current_price = float(price_data.get("current_price") or 0)
         if current_price > 0:
             return_rate    = round((current_price - avg_buy_price) / avg_buy_price * 100, 2)
@@ -238,21 +242,21 @@ def get_portfolio_risk(account_id: str) -> dict:
         SELECT NVL(SUM(net_amount), 0)
         FROM executions
         WHERE account_id = :account_id
-          AND order_side  = 'sell'
+          AND order_side  = 'SELL'
     """
     realized_row = fetch_one(realized_sql, {"account_id": account_id}) or (0,)
     realized_pnl = float(realized_row[0] or 0)
     unrealized_pnl = sum(s["unrealized_pnl"] for s in stock_returns)
 
     return {
-        "volatility":     volatility,
-        "mdd":            mdd_val,
+        "volatility":      volatility,
+        "mdd":             mdd_val,
         "recovery_needed": round(abs(mdd_val) / (100 - abs(mdd_val)) * 100, 2) if mdd_val < 0 else 0.0,
-        "best_stock":     best_stock,
-        "worst_stock":    worst_stock,
-        "realized_pnl":   realized_pnl,
-        "unrealized_pnl": unrealized_pnl,
-        "stock_returns":  stock_returns,
+        "best_stock":      best_stock,
+        "worst_stock":     worst_stock,
+        "realized_pnl":    realized_pnl,
+        "unrealized_pnl":  unrealized_pnl,
+        "stock_returns":   stock_returns,
     }
 
 
@@ -318,12 +322,12 @@ def get_trade_stats(account_id: str) -> dict:
     sql = """
         SELECT
             COUNT(*)                                                                           AS total_trades,
-            COUNT(CASE WHEN order_side = 'buy'  THEN 1 END)                                   AS buy_count,
-            COUNT(CASE WHEN order_side = 'sell' THEN 1 END)                                   AS sell_count,
-            COUNT(CASE WHEN order_side = 'sell' AND net_amount > 0 THEN 1 END)                AS win_count,
-            COUNT(CASE WHEN order_side = 'sell' AND net_amount < 0 THEN 1 END)                AS loss_count,
-            NVL(AVG(CASE WHEN order_side = 'sell' AND net_amount > 0 THEN net_amount END), 0) AS avg_win,
-            NVL(AVG(CASE WHEN order_side = 'sell' AND net_amount < 0 THEN net_amount END), 0) AS avg_loss,
+            COUNT(CASE WHEN order_side = 'BUY'  THEN 1 END)                                   AS buy_count,
+            COUNT(CASE WHEN order_side = 'SELL' THEN 1 END)                                   AS sell_count,
+            COUNT(CASE WHEN order_side = 'SELL' AND net_amount > 0 THEN 1 END)                AS win_count,
+            COUNT(CASE WHEN order_side = 'SELL' AND net_amount < 0 THEN 1 END)                AS loss_count,
+            NVL(AVG(CASE WHEN order_side = 'SELL' AND net_amount > 0 THEN net_amount END), 0) AS avg_win,
+            NVL(AVG(CASE WHEN order_side = 'SELL' AND net_amount < 0 THEN net_amount END), 0) AS avg_loss,
             NVL(SUM(net_amount), 0)                                                           AS total_realized
         FROM executions
         WHERE account_id = :account_id
