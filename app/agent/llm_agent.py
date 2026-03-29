@@ -293,18 +293,21 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
         if query_type == "by_stock":
             stock_code = _resolve_stock(args["stock_code"])
             result = get_trades_by_stock(account_id, stock_code=stock_code)
-            # LLM이 수량·가격을 따로 묻지 않도록 요약 문장 미리 생성
+            # raw 숫자 제거 후 포맷된 문장만 전달 (LLM 숫자 환각 방지)
             trades = result.get("trades", [])
-            summaries = []
+            fmt_trades = []
             for t in trades[:5]:
                 side  = "매도" if str(t.get("side", "")).upper() in ("SELL", "sell") else "매수"
                 qty   = int(t.get("quantity") or 0)
                 price = int(t.get("price") or 0)
-                at    = str(t.get("executed_at", ""))[:10]
-                summaries.append(f"{at} {side} {qty:,}주 @ {price:,}원")
-            if summaries:
-                result["거래_요약"] = " | ".join(summaries)
-            return result
+                at    = str(t.get("executed_at", ""))[:16]
+                fmt_trades.append(f"{at} {side} {qty:,}주 @ {price:,}원")
+            return {
+                "stock_name": result.get("stock_name", stock_code),
+                "stock_code": result.get("stock_code", stock_code),
+                "count":      result.get("count", len(trades)),
+                "거래내역":   fmt_trades,
+            }
         if query_type == "by_date":
             return get_trades_by_date(account_id, date=args["date"])
         return {"error": f"Unknown query_type: {query_type}"}
@@ -381,8 +384,8 @@ def _build_system() -> str:
 - 특정 날짜의 거래 → by_date
 
 거래내역 답변 규칙:
-- "언제" 질문 → executed_at 날짜/시간만 답하세요. 예) "삼성전자 2026-03-27 16:12에 1주를 179,700원에 매도했어요."
-- "얼마에" 질문 → 가격과 수량을 함께 답하세요. 예) "삼성전자 2026-03-27 16:12에 1주를 179,700원에 매도했어요." (거래_요약 필드 활용)
+- 거래 관련 질문에는 항상 날짜·수량·가격을 모두 포함해 답하세요. (거래_요약 필드 활용)
+- 예) "삼성전자 2026-03-27 16:12에 1주를 179,700원에 매도했어요."
 
 보유 종목 응답 규칙:
 - 보유 중: "네, X 종목 Y주 보유 중이에요." (다른 종목 나열 금지)

@@ -25,6 +25,7 @@
 AI/
 ├── app/
 │   ├── main.py                        # FastAPI 앱, POST /chat 엔드포인트
+│   │                                  # 모호한 follow-up 감지 + 맥락 기반 intent 재분류
 │   │
 │   ├── core/
 │   │   ├── auth.py                    # JWT 검증, user_context 추출
@@ -35,20 +36,19 @@ AI/
 │   │   └── mongo.py                   # MongoDB 연결 + 채팅 기록 턴 기반 저장
 │   │
 │   ├── chatbot/                       # 룰 베이스 라우터
-│   │   ├── rule_router.py             # 키워드 기반 의도 감지 + 파라미터 추출
+│   │   ├── router.py                  # 키워드 기반 의도 감지 + follow-up 대명사 감지
 │   │   ├── dispatcher.py              # 의도 → 도구 호출 → 템플릿 포맷
-│   │   └── stock_resolver.py          # 종목명 → 종목코드 변환 (CSV 캐싱)
+│   │   └── resolver.py                # 종목명 → 종목코드 변환 (CSV 캐싱)
 │   │
 │   ├── agent/                         # 단일 LLM 에이전트
-│   │   ├── trade_tools.py             # 거래내역 조회 도구 (Oracle DB)
-│   │   ├── portfolio_tools.py         # 포트폴리오 분석 도구 (Oracle DB + Spring API)
-│   │   └── llm_agent.py               # 단일 에이전트 (5개 도구, 대화 기록 포함)
+│   │   └── llm_agent.py               # ReAct 에이전트 (5개 도구, 대화 기록, 맥락 보강)
 │   │
-│   ├── hardcoding/                    # 외부 API 조회
-│   │   ├── get_market_data.py         # 시세·차트·순위·지수·환율 (Spring API)
-│   │   ├── get_market_summary.py      # 한국/미국 시황, 종목 뉴스 (MongoDB)
-│   │   ├── get_balance_data.py        # 잔고 조회 (Spring API)
-│   │   └── execute_order.py           # 매수·매도·환전 주문 (Spring API)
+│   ├── data/                          # 외부 데이터 조회
+│   │   ├── market.py                  # 시세·차트·순위·지수·환율 (Spring API)
+│   │   ├── news.py                    # 한국/미국 시황, 종목 뉴스 (MongoDB)
+│   │   ├── account.py                 # 잔고 조회 (Spring API)
+│   │   ├── portfolio.py               # 포트폴리오 분석 (Oracle DB + Spring API)
+│   │   └── trades.py                  # 거래내역 조회 (Oracle DB)
 │   │
 │   └── templates/                     # 응답 포맷 함수 모음
 │       ├── index.py                   # format_index()
@@ -56,12 +56,13 @@ AI/
 │       ├── ranking.py                 # format_ranking()
 │       ├── chart_price.py             # format_chart_price()
 │       ├── account.py                 # format_balance(balance_type)
-│       ├── stock_news.py              # format_korea_summary() / format_us_summary() / format_stock_news()
+│       ├── stock_news.py              # format_korea_summary() / format_us_summary() / format_stock_news() / format_holdings_news()
 │       ├── order.py                   # format_order()
 │       ├── trades.py                  # format_trades() / format_trades_by_date()
-│       ├── portfolio.py               # format_portfolio()
+│       ├── portfolio.py               # format_portfolio() / format_portfolio_analysis(metric_type)
 │       └── guide.py                   # _GUIDE_MESSAGE / _FALLBACK_MESSAGE
 │
+├── test_scenarios.md                  # 챗봇 기능별 테스트 시나리오
 ├── .env
 ├── .gitignore
 ├── requirements.txt
@@ -79,9 +80,12 @@ AI/
 POST /chat  (main.py)
       │  Authorization: Bearer <JWT>
       │  → get_user_context() : user_id, account_id 추출
+      │  → follow-up 감지: 모호한 질문 + 직전 포트폴리오 tool → intent = unknown
+      │  → 종목 미지정 시세/뉴스 질문 → intent = unknown (agent로 위임)
       ▼
-rule_router.detect(message)
+router.detect(message)
       │  키워드 패턴 매칭 → intent, params 반환
+      │  대명사("그 종목", "아까" 등) 감지 시 → unknown 반환
       ▼
 dispatcher.dispatch(intent, params, user_context, message)
       │
@@ -98,13 +102,20 @@ dispatcher.dispatch(intent, params, user_context, message)
       ├── us_summary      → get_market_summary("us")           → format_us_summary()
       ├── market_summary  → korea + us 동시 조회 → 통합 응답
       ├── stock_news      → 섹터 키워드 감지 시 안내 / get_market_summary("stock_news")
-      ├── trades          → 단순 조회 → format_trades() / 세부 질문 → LLM 에이전트
-      ├── portfolio       → 단순 조회 → format_portfolio() / 세부 질문 → LLM 에이전트
+      ├── trades          → 단순 조회 → format_trades()
+      │                     날짜 조회 → format_trades_by_date()
+      │                     매수/매도 비교 → 직접 계산 (환각 방지)
+      │                     세부 질문 → LLM 에이전트
+      ├── portfolio       → 단순 조회 → format_portfolio()
+      │                     보유 종목 뉴스 → 전용 핸들러 (rule-based)
+      │                     지표별 질문 → format_portfolio_analysis(metric_type)
+      │                     크로스도메인 질문 → LLM 에이전트
       └── unknown         → 섹터 키워드 감지 시 안내 / LLM 에이전트
       │
       ▼
 MongoDB에 턴 단위 저장
   { messages: [user, tool_calls, tool_result, assistant] }
+  (템플릿 응답은 "조회한 데이터를 보여드렸어요."로 단축 저장 — LLM 템플릿 모방 방지)
       │
       ▼
 ChatResponse { type, reply, stock_code }
@@ -173,6 +184,7 @@ ranking_type 키워드 매핑:
 | 데이터 소스   | Spring API `GET /api/market/stocks/{code}/price`                              |
 | 파라미터      | stock_code (6자리 → 국내, 영문 대문자 → 미국, 한글 → CSV 종목명 매칭)        |
 | 응답 포맷     | `format_chart_price()`                                                        |
+| 종목 미지정 시 | intent = unknown → LLM 에이전트 (이전 맥락에서 종목 추출)                   |
 
 ---
 
@@ -185,22 +197,14 @@ ranking_type 키워드 매핑:
 | 파라미터      | balance_type: total_assets / cash / summary    |
 | 응답 포맷     | `format_balance(balance_type)`                 |
 
-balance_type 분기:
-
-| 질문 예시          | balance_type    | 응답              |
-| ------------------ | --------------- | ----------------- |
-| "총 자산 얼마야"   | `total_assets`  | 총 자산만 표시    |
-| "현금 잔고"        | `cash`          | 현금 잔고만 표시  |
-| "내 계좌", "잔액"  | `summary`       | 총 자산 + 현금    |
-
 ---
 
 ### (6) 매수·매도 버튼 연동
 
 | 항목        | 내용                                                  |
 | ----------- | ----------------------------------------------------- |
-| 매수 트리거 | 매수, 사고 싶어, 살게, 구매                           |
-| 매도 트리거 | 매도, 팔고 싶어, 팔게, 판매                           |
+| 매수 트리거 | 매수, 사고 싶어, 살게, 구매 (단, "매수가/매수는" 등 조사 붙은 경우 제외) |
+| 매도 트리거 | 매도, 팔고 싶어, 팔게, 판매 (단, "매도가/매도는" 등 조사 붙은 경우 제외) |
 | 동작        | `type: "order"` + `stock_code` 로 프론트엔드에 전달  |
 
 응답 예시:
@@ -243,6 +247,7 @@ balance_type 분기:
 | 트리거 키워드 | 뉴스, 기사, 소식 + 종목명                         |
 | 데이터 소스   | MongoDB `sollite.stock_news`                      |
 | 섹터 감지     | 바이오/반도체 등 섹터 키워드 → 안내 메시지 반환  |
+| 종목 미지정 시 | intent = unknown → LLM 에이전트 (이전 맥락에서 종목 추출) |
 
 섹터 키워드 (`_SECTOR_KEYWORDS`): 바이오, 반도체, 제약, 화학, 자동차, IT, 금융, 에너지, 헬스케어, 게임, 엔터, 식품, 건설, 철강, 전기차, 배터리, 2차전지, 항공, 조선, 보험, 은행, 유통, 통신, 방산
 
@@ -250,21 +255,34 @@ balance_type 분기:
 
 ### (11) 거래내역 조회 — AI agent
 
-| 항목          | 내용                                                   |
-| ------------- | ------------------------------------------------------ |
-| 트리거 키워드 | 거래내역, 매매 내역, 체결 내역, 최근 거래              |
-| 단순 조회     | `format_trades()` / `format_trades_by_date()` 직접 반환 |
-| 세부 질문     | LLM 에이전트 → `get_trade_history` 도구 호출           |
+| 항목              | 내용                                                   |
+| ----------------- | ------------------------------------------------------ |
+| 트리거 키워드     | 거래내역, 매매 내역, 체결 내역, 최근 거래              |
+| 단순 조회         | `format_trades()` / `format_trades_by_date()` 직접 반환 |
+| 매수/매도 비교    | 직접 계산 후 반환 (LLM 비교 환각 방지)                 |
+| 세부 질문         | LLM 에이전트 → `get_trade_history` 도구 호출           |
 
 ---
 
 ### (12) 포트폴리오 분석 — AI agent
 
-| 항목          | 내용                                                |
-| ------------- | --------------------------------------------------- |
-| 트리거 키워드 | 포트폴리오, 포폴, 수익률, 손익, 보유 종목           |
-| 단순 조회     | `format_portfolio()` 직접 반환                      |
-| 세부 질문     | LLM 에이전트 → `get_portfolio_info` 도구 호출       |
+| 항목              | 내용                                                |
+| ----------------- | --------------------------------------------------- |
+| 트리거 키워드     | 포트폴리오, 포폴, 수익률, 손익, 보유 종목           |
+| 단순 조회         | `format_portfolio()` 직접 반환                      |
+| 보유 종목 뉴스    | 전용 rule-based 핸들러 (보유 종목별 뉴스 1건씩)     |
+| 지표별 질문       | `format_portfolio_analysis(metric_type)` — 수익률/섹터/리스크/거래통계 포커스 뷰 |
+| 세부/복합 질문    | LLM 에이전트 → `get_portfolio_info` 도구 호출       |
+
+지표 타입 (`metric_type`):
+
+| 키워드 예시                    | metric_type |
+| ------------------------------ | ----------- |
+| 수익률, 1개월, 6개월           | `returns`   |
+| 섹터, 업종, 비중, 국내/해외    | `sector`    |
+| 리스크, MDD, 변동성, 낙폭      | `risk`      |
+| 승률, 손익비, 거래 통계        | `stats`     |
+| 보유 종목, 종목 수             | `holdings`  |
 
 ---
 
@@ -282,10 +300,35 @@ balance_type 분기:
 | `get_portfolio_info`  | 포트폴리오 정보 조회     | `info_type`: holdings / sector / returns / risk / stats    |
 | `get_trade_history`   | 거래내역 조회            | `query_type`: recent / by_stock / by_date                  |
 
-### 대화 맥락 처리
+### LLM 숫자 환각 방지
 
-- MongoDB에서 최근 20개 턴을 불러와 LLM에 전달
-- 짧은 팔로업 질문 (`"하닉은?"`) 은 이전 도구를 확인해 자동 보강 (`"하닉 뉴스"`)
+tool 결과를 LLM에 전달하기 전에 raw 숫자를 포맷된 문자열로 변환합니다.
+
+| 도구                              | 변환 내용                                              |
+| --------------------------------- | ------------------------------------------------------ |
+| `get_stock_price`                 | `current_price: 922000` → `"922,000원"` 등 문자열화   |
+| `get_portfolio_info` (holdings)   | `return_rate: -0.003` → `"-0.49%"` 등 포맷            |
+| `get_portfolio_info` (returns)    | 수익률·MDD → `"+3.2%"` 형식                            |
+| `get_portfolio_info` (risk)       | 손익·MDD → 포맷된 문자열                               |
+| `get_trade_history` (by_stock)    | 거래 목록 → `"2026-03-27 매도 1주 @ 179,700원"` 형식  |
+| `get_trade_history` (recent)      | 매수/매도 비교 결과 → `"매수(5건)가 매도(1건)보다 많습니다."` |
+
+### 대화 맥락 처리 (맥락 보강)
+
+에이전트 호출 전 `_enrich_with_context()`가 메시지를 보강합니다.
+
+| 입력 패턴                     | 변환 결과                          | 처리 방식                     |
+| ----------------------------- | ---------------------------------- | ----------------------------- |
+| `"그 종목 현재가"`            | `"현대차 현재가"`                  | 대명사 → 직전 종목명 치환     |
+| `"현재가 어때"` (종목 없음)   | `"현대차 현재가 어때"`             | 직전 언급 종목 주입            |
+| `"하닉은?"`                   | `"하닉 뉴스"` 또는 `"하닉 현재가"` | 직전 도구 타입 주입            |
+
+직전 종목 추출 우선순위:
+1. 최근 `get_stock_price` / `get_stock_news` tool_call 인자
+2. 최근 `get_trade_history(by_stock)` tool_call 인자
+3. 최근 assistant 텍스트 첫 줄에서 종목명 파싱
+
+MongoDB 히스토리는 최근 6턴만 로드해 이전 세션 오염을 방지합니다.
 
 ---
 
@@ -296,7 +339,7 @@ balance_type 분기:
 ```json
 {
   "account_id": "1",
-  "timestamp": "2026-03-28T...",
+  "timestamp": "2026-03-30T...",
   "messages": [
     {"role": "user",      "content": "삼성전자 뉴스"},
     {"role": "assistant", "tool_calls": [{"function": {"name": "get_stock_news", "arguments": {"stock_code": "005930"}}}]},
@@ -306,27 +349,32 @@ balance_type 분기:
 }
 ```
 
+> 템플릿 경로(단순 조회) 응답은 `"조회한 데이터를 보여드렸어요."`로 단축 저장합니다.
+> LLM이 긴 마크다운 템플릿 형식을 모방하는 것을 방지하기 위함입니다.
+
 ---
 
-## 의도 감지 우선순위 (rule_router)
+## 의도 감지 우선순위 (router)
 
 ```
 1.  greeting       (인사 / 도움말)
-2.  buy_intent     (매수)
-3.  sell_intent    (매도)
+2.  buy_intent     (매수 — "매수가/매수는" 등 조사 붙은 경우 제외)
+3.  sell_intent    (매도 — "매도가/매도는" 등 조사 붙은 경우 제외)
 4.  exchange_order (환전 주문)
 5.  balance        (잔고)
-6.  stock_news     (종목 뉴스)
-7.  korea_summary  (한국 시황)
-8.  us_summary     (미국 시황)
-9.  market_summary (통합 시황)
-10. index          (지수)
-11. chart_price    (시세·차트)
-12. ranking        (주식 순위)
-13. exchange_rate  (환율)
-14. trades         (거래내역)
-15. portfolio      (포트폴리오)
+6.  portfolio      (포트폴리오 — 보유종목+뉴스 복합 패턴 우선)
+7.  stock_news     (종목 뉴스)
+8.  korea_summary  (한국 시황)
+9.  us_summary     (미국 시황)
+10. market_summary (통합 시황)
+11. index          (지수)
+12. chart_price    (시세·차트)
+13. ranking        (주식 순위)
+14. exchange_rate  (환율)
+15. trades         (거래내역)
 ```
+
+> follow-up 대명사("그 종목", "아까", "방금" 등) 감지 시 intent = unknown으로 직행합니다.
 
 ---
 
