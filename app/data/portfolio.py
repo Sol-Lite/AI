@@ -1,8 +1,5 @@
 """
-(12) 포트폴리오 분석 agent tools — Oracle DB + Spring API
-
-llama가 tool calling으로 선택해서 호출하는 개별 함수들.
-전체 데이터를 한 번에 가져오지 않고 질문에 필요한 함수만 호출합니다.
+(12) 포트폴리오 분석 tools — Oracle DB + Spring API
 
 tools:
     get_holdings             — 현재 보유 종목 목록 (수량, 평균단가, 평가금액)
@@ -15,7 +12,7 @@ template:
     get_portfolio_summary    — 위 함수들을 조합해 format_portfolio() 입력용 dict 반환
 """
 from app.db.oracle import fetch_one, fetch_all
-from app.hardcoding.get_market_data import get_market_data
+from app.data.market import get_market_data
 
 # DB의 market_type → domestic/overseas 변환
 _DOMESTIC_MARKETS = {"KOSPI", "KOSDAQ"}
@@ -260,6 +257,45 @@ def get_portfolio_risk(account_id: str) -> dict:
     }
 
 
+def get_trade_stats(account_id: str) -> dict:
+    """거래 통계: 총 거래 수, 승률, 평균 손익, 손익비를 반환합니다."""
+    sql = """
+        SELECT
+            COUNT(*)                                                                           AS total_trades,
+            COUNT(CASE WHEN order_side = 'BUY'  THEN 1 END)                                   AS buy_count,
+            COUNT(CASE WHEN order_side = 'SELL' THEN 1 END)                                   AS sell_count,
+            COUNT(CASE WHEN order_side = 'SELL' AND net_amount > 0 THEN 1 END)                AS win_count,
+            COUNT(CASE WHEN order_side = 'SELL' AND net_amount < 0 THEN 1 END)                AS loss_count,
+            NVL(AVG(CASE WHEN order_side = 'SELL' AND net_amount > 0 THEN net_amount END), 0) AS avg_win,
+            NVL(AVG(CASE WHEN order_side = 'SELL' AND net_amount < 0 THEN net_amount END), 0) AS avg_loss,
+            NVL(SUM(net_amount), 0)                                                           AS total_realized
+        FROM executions
+        WHERE account_id = :account_id
+    """
+    row = fetch_one(sql, {"account_id": account_id}) or (0, 0, 0, 0, 0, 0, 0, 0)
+    total_trades, buy_count, sell_count, win_count, loss_count, avg_win, avg_loss, total_realized = row
+
+    avg_win       = float(avg_win       or 0)
+    avg_loss      = float(avg_loss      or 0)
+    sell_count_n  = int(sell_count      or 0)
+    win_count_n   = int(win_count       or 0)
+    win_rate      = round(win_count_n / sell_count_n * 100, 1) if sell_count_n > 0 else 0.0
+    profit_factor = round(avg_win / abs(avg_loss), 2) if avg_loss != 0 else 0.0
+
+    return {
+        "total_trades":   int(total_trades  or 0),
+        "buy_count":      int(buy_count     or 0),
+        "sell_count":     sell_count_n,
+        "win_count":      win_count_n,
+        "loss_count":     int(loss_count    or 0),
+        "win_rate":       win_rate,
+        "avg_win":        avg_win,
+        "avg_loss":       avg_loss,
+        "profit_factor":  profit_factor,
+        "total_realized": float(total_realized or 0),
+    }
+
+
 def get_portfolio_summary(account_id: str) -> dict:
     """
     템플릿 출력용 포트폴리오 전체 요약 데이터를 반환합니다.
@@ -314,43 +350,4 @@ def get_portfolio_summary(account_id: str) -> dict:
         "avg_win":              trade_stat.get("avg_win",  0),
         "avg_loss":             trade_stat.get("avg_loss", 0),
         "profit_factor":        trade_stat.get("profit_factor", 0),
-    }
-
-
-def get_trade_stats(account_id: str) -> dict:
-    """거래 통계: 총 거래 수, 승률, 평균 손익, 손익비를 반환합니다."""
-    sql = """
-        SELECT
-            COUNT(*)                                                                           AS total_trades,
-            COUNT(CASE WHEN order_side = 'BUY'  THEN 1 END)                                   AS buy_count,
-            COUNT(CASE WHEN order_side = 'SELL' THEN 1 END)                                   AS sell_count,
-            COUNT(CASE WHEN order_side = 'SELL' AND net_amount > 0 THEN 1 END)                AS win_count,
-            COUNT(CASE WHEN order_side = 'SELL' AND net_amount < 0 THEN 1 END)                AS loss_count,
-            NVL(AVG(CASE WHEN order_side = 'SELL' AND net_amount > 0 THEN net_amount END), 0) AS avg_win,
-            NVL(AVG(CASE WHEN order_side = 'SELL' AND net_amount < 0 THEN net_amount END), 0) AS avg_loss,
-            NVL(SUM(net_amount), 0)                                                           AS total_realized
-        FROM executions
-        WHERE account_id = :account_id
-    """
-    row = fetch_one(sql, {"account_id": account_id}) or (0, 0, 0, 0, 0, 0, 0, 0)
-    total_trades, buy_count, sell_count, win_count, loss_count, avg_win, avg_loss, total_realized = row
-
-    avg_win       = float(avg_win       or 0)
-    avg_loss      = float(avg_loss      or 0)
-    sell_count_n  = int(sell_count      or 0)
-    win_count_n   = int(win_count       or 0)
-    win_rate      = round(win_count_n / sell_count_n * 100, 1) if sell_count_n > 0 else 0.0
-    profit_factor = round(avg_win / abs(avg_loss), 2) if avg_loss != 0 else 0.0
-
-    return {
-        "total_trades":   int(total_trades  or 0),
-        "buy_count":      int(buy_count     or 0),
-        "sell_count":     sell_count_n,
-        "win_count":      win_count_n,
-        "loss_count":     int(loss_count    or 0),
-        "win_rate":       win_rate,
-        "avg_win":        avg_win,
-        "avg_loss":       avg_loss,
-        "profit_factor":  profit_factor,
-        "total_realized": float(total_realized or 0),
     }

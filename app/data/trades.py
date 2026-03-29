@@ -1,13 +1,11 @@
 """
-(11) 거래내역 agent tools — Oracle DB
-
-llama가 tool calling으로 선택해서 호출하는 개별 함수들.
-전체 데이터를 한 번에 가져오지 않고 질문에 필요한 함수만 호출합니다.
+(11) 거래내역 tools — Oracle DB
 
 tools:
     get_trade_summary     — 총 거래 횟수, 매수/매도 횟수
     get_recent_trades     — 최근 N건 거래 목록
     get_trades_by_stock   — 특정 종목의 거래 내역
+    get_trades_by_date    — 특정 날짜의 거래 내역
 
 template:
     get_trades_template_data — 위 함수들을 조합해 format_trades() 입력용 dict 반환
@@ -67,7 +65,6 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
 def get_trades_by_date(account_id: str, date: str) -> dict:
     """특정 날짜의 전체 거래 내역을 반환합니다. date 형식: 'YYYY-MM-DD' 또는 'MM-DD' 또는 'M월 D일'"""
     import re
-    # 다양한 날짜 형식 파싱 → YYYY-MM-DD
     date = date.strip()
     m = re.match(r'(\d{4})-(\d{2})-(\d{2})', date)
     if not m:

@@ -16,7 +16,7 @@ import re
 import requests
 from datetime import date as date_type
 from app.db.oracle import resolve_stock_code
-from app.chatbot.stock_resolver import resolve_name_from_code
+from app.chatbot.resolver import resolve_name_from_code
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 
@@ -60,9 +60,6 @@ def get_market_data(type: str, **kwargs):
     if type == "price":
         return _fetch_price(kwargs.get("stock_code"), kwargs.get("market"))
 
-    # elif type == "chart":
-    #     return _fetch_chart(kwargs.get("stock_code"), kwargs.get("market"))
-
     elif type == "daily":
         return _fetch_daily(kwargs.get("stock_code"), kwargs.get("date"))
 
@@ -78,7 +75,7 @@ def get_market_data(type: str, **kwargs):
 
     elif type == "exchange":
         return _fetch_exchange(kwargs.get("currency_pair"))
-    elif type=="index":
+    elif type == "index":
         return _fetch_index()
 
     else:
@@ -100,7 +97,6 @@ def _call_spring_api(path: str, params: dict | None = None):
         }
 
 # ── price ─────────────────────────────────────────────────────────────────────
-# 시세 조회 템플릿을 위한 함수 병합
 def _fetch_price(stock_code: str, market: str | None) -> dict:
     price_data = _call_spring_api(
         f"/api/market/stocks/{stock_code}/price",
@@ -131,19 +127,6 @@ def _fetch_price(stock_code: str, market: str | None) -> dict:
 
 
 # ── chart ─────────────────────────────────────────────────────────────────────
-
-
-#종목 분봉 차트
-# def _fetch_chart(stock_code: str | None, market: str | None) -> dict:
-#     if not stock_code:
-#         return {"error": "stock_code is required"}
-
-#     return _call_spring_api(
-#         f"/api/market/stocks/{stock_code}/minute-chart",
-#         {"ncnt": 1}  # 1분봉
-#     )
-
-#종목 기간별 차트(일/주/월/년)
 def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date: str | None = None) -> dict:
     if not start_date:
         return {"error": "start_date is required"}
@@ -166,7 +149,7 @@ def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date:
         }
     )
 
-# 저가,고가,종가 등등 
+
 def _fetch_daily(stock_code: str, date: str) -> dict:
     return _call_spring_api(
         f"/api/market/stocks/{stock_code}/daily",
@@ -175,7 +158,6 @@ def _fetch_daily(stock_code: str, date: str) -> dict:
 
 
 # ── ranking ───────────────────────────────────────────────────────────────────
-
 _VALID_RANKING_TYPES = {"trading-volume", "trading-value", "rising", "falling", "market-cap"}
 
 
@@ -203,7 +185,6 @@ def _fetch_index():
 def _fetch_exchange(currency_pair: str | None) -> dict:
     pair = currency_pair or "USDKRW"
 
-    # USD/KRW는 /api/market/indices 에서 가져옴
     if pair == "USDKRW":
         indices = _call_spring_api("/api/market/indices")
         if isinstance(indices, list):

@@ -40,13 +40,38 @@
 #     return ChatResponse(reply=reply)
 
 # main.py
+import re
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from app.core.auth import get_user_context
-from app.chatbot.rule_router import detect
+from app.chatbot.router import detect
 from app.chatbot.dispatcher import dispatch
 
 app = FastAPI(title="Investment Chatbot")
+
+# 이전 대화 맥락이 있어야 의미가 명확해지는 모호한 패턴
+_AMBIGUOUS_RE = re.compile(
+    r"(제일|가장|젤)\s*(많이\s*(오른|내린|상승|하락)|수익|손해|위험|좋은|나쁜)"
+    r"|"
+    r"(수익률|손익|비중|비율)\s*(이|가|은|는)?\s*(얼마|어때|어떻게|높|낮)"
+)
+
+# 직전 대화에서 포트폴리오/거래 관련 tool을 사용했는지 확인
+_PORTFOLIO_TOOLS = {"get_portfolio_info", "get_trade_history"}
+
+
+def _last_tool_was_portfolio(account_id: str) -> bool:
+    """최근 대화에서 포트폴리오/거래 tool을 사용했으면 True"""
+    try:
+        from app.db.mongo import get_chat_history
+        history = get_chat_history(account_id, limit=6)
+        for msg in reversed(history):
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                tool_name = msg["tool_calls"][0].get("function", {}).get("name", "")
+                return tool_name in _PORTFOLIO_TOOLS
+    except Exception:
+        pass
+    return False
 
 
 class ChatRequest(BaseModel):
@@ -67,6 +92,16 @@ async def chat_endpoint(
     account_id = str(user_context.get("account_id", ""))
 
     intent, params = detect(req.message)
+
+    # 모호한 질문 + 직전에 포트폴리오 tool 사용 → agent로 위임
+    if intent in ("ranking", "chart_price", "unknown") and _AMBIGUOUS_RE.search(req.message):
+        if _last_tool_was_portfolio(account_id):
+            intent = "unknown"
+
+    # 시세/뉴스 intent인데 종목 미지정 → 이전 맥락 기반 follow-up → agent로 위임
+    if intent in ("chart_price", "stock_news") and not params.get("stock_code"):
+        intent = "unknown"
+
     result = dispatch(intent, params, user_context, original_message=req.message)
 
     # user + tool_context(있으면) + assistant 를 한 턴으로 저장
@@ -74,7 +109,13 @@ async def chat_endpoint(
         from app.db.mongo import save_conversation_turn
         turn_messages = [{"role": "user", "content": req.message}]
         turn_messages.extend(result.get("_tool_context") or [])
-        turn_messages.append({"role": "assistant", "content": result.get("reply", "")})
+
+        # 템플릿 응답은 전체 마크다운 대신 짧은 요약을 저장
+        # → llama가 이전 assistant 메시지의 긴 템플릿 형식을 따라 복사하는 것을 방지
+        # 실제 데이터는 tool_context(tool 메시지)에 이미 저장되어 있음
+        reply = result.get("reply", "")
+        saved_reply = "조회한 데이터를 보여드렸어요." if "━" in reply else reply
+        turn_messages.append({"role": "assistant", "content": saved_reply})
         save_conversation_turn(account_id, turn_messages)
     except Exception:
         pass

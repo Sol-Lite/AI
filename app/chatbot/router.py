@@ -18,7 +18,7 @@
     unknown         - 인식 불가
 """
 import re
-from app.chatbot.stock_resolver import resolve_from_csv, _normalize_message
+from app.chatbot.resolver import resolve_from_csv, _normalize_message
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {
@@ -38,7 +38,7 @@ _PATTERNS: dict[str, list[str]] = {
     ],
     # (6) 매수 — 반드시 ranking/index 등보다 먼저 검사
     "buy_intent": [
-        r"매수(?!\s*한|\s*했|\s*하였|\s*내역|\s*기록|\s*이력)",
+        r"매수(?!\s*(한|했|하였|내역|기록|이력|가|이|는|은|량|비중|수))",
         r"사고\s*싶",
         r"사",
         r"살게",
@@ -60,7 +60,7 @@ _PATTERNS: dict[str, list[str]] = {
     ],
     # (6) 매도
     "sell_intent": [
-        r"매도(?!\s*한|\s*했|\s*하였|\s*내역|\s*기록|\s*이력)",
+        r"매도(?!\s*(한|했|하였|내역|기록|이력|가|이|는|은|량|비중|수))",
         r"팔고\s*싶",
         r"팔게",
         r"팔아보려고",
@@ -278,10 +278,7 @@ _PATTERNS: dict[str, list[str]] = {
         r"투자\s*분석",
         r"내\s*주식\s*분석",
         r"내\s*수익률",
-        r"보유\s*주식",
-        r"보유\s*종목",
-        r"수익률",
-        r"손익",
+        r"보유\s*(주식|종목)",
         r"내\s*자산",
         r"섹터\s*비중",
         r"업종\s*비중",
@@ -295,6 +292,7 @@ _PRIORITY = [
     "sell_intent",
     "exchange_order",
     "balance",
+    "portfolio",      # 크로스도메인 복합 패턴 우선 (보유종목+뉴스/시세 등)
     "stock_news",
     "korea_summary",
     "us_summary",
@@ -304,7 +302,6 @@ _PRIORITY = [
     "ranking",
     "exchange_rate",
     "trades",         # 거래내역 조회
-    "portfolio",      # 포트폴리오 분석
 ]
 
 # 파라미터 추출 시 무시할 한글 단어 목록
@@ -331,6 +328,10 @@ def detect(message: str) -> tuple[str, dict]:
     """
     msg = message.strip()
 
+    # 대화 지시어가 있으면 이전 맥락 기반 질문 → agent로 직행
+    if _is_followup(msg):
+        return "unknown", {}
+
     for intent in _PRIORITY:
         for pattern in _PATTERNS[intent]:
             if re.search(pattern, msg, re.IGNORECASE):
@@ -338,6 +339,19 @@ def detect(message: str) -> tuple[str, dict]:
                 return intent, params
 
     return "unknown", {}
+
+
+# 이전 대화를 가리키는 지시어 패턴
+_FOLLOWUP_RE = re.compile(
+    r"^(그\s*(중|종목|거|게|건|쪽|애|놈|분)|저\s*(중|종목|거)|아까|방금|앞에서|이전에|위에서)"
+    r"|그\s*(중에|종목은|종목이|거는|게|건데|게요|종목의)",
+    re.IGNORECASE,
+)
+
+
+def _is_followup(msg: str) -> bool:
+    """이전 대화를 참조하는 follow-up 질문이면 True"""
+    return bool(_FOLLOWUP_RE.search(msg))
 
 
 # ── 파라미터 추출 헬퍼 ─────────────────────────────────────────────────────────

@@ -94,6 +94,45 @@ def format_us_summary(data: dict) -> str:
     return "\n\n".join(sections)
 
 
+def format_holdings_news(results: list[dict]) -> str:
+    """보유 종목 전체 뉴스 — 종목별 최신 1건씩 표시"""
+    has_news = [r for r in results if r.get("news")]
+    no_news  = [r for r in results if not r.get("news")]
+
+    sections = ["**📰 보유 종목 뉴스**", _SEP]
+
+    if not has_news:
+        sections.append("보유 종목에 관련 뉴스가 없습니다.")
+        sections.append(_SEP)
+        return "\n\n".join(sections)
+
+    for r in has_news:
+        stock_name = r.get("stock_name") or r.get("stock_code", "")
+        item       = r["news"][0]
+        title      = item.get("title", "")
+        summary    = item.get("summary", "")
+        date       = item.get("published_at", "")
+
+        date_str = f"  ({date})" if date else ""
+        block = [f"**{stock_name}**{date_str}", f"• {title}"]
+
+        if summary:
+            one_line = summary if isinstance(summary, str) else (
+                summary.get("one_line_summary") or summary.get("summary", "")
+            )
+            if one_line:
+                block.append(f"  💡 {one_line}")
+
+        sections.append("  \n".join(block))
+
+    if no_news:
+        names = ", ".join(r.get("stock_name") or r.get("stock_code", "") for r in no_news)
+        sections.append(f"*뉴스 없음: {names}*")
+
+    sections.append(_SEP)
+    return "\n\n".join(sections)
+
+
 def format_stock_news(data: dict) -> str:
     stock_code = data.get("stock_code", "")
     stock_name = data.get("stock_name") or stock_code
