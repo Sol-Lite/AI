@@ -18,7 +18,7 @@
     unknown         - 인식 불가
 """
 import re
-from app.chatbot.resolver import resolve_from_csv, _normalize_message
+from app.chatbot.resolver import resolve_from_csv, resolve_all_from_csv, _normalize_message
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {
@@ -268,6 +268,9 @@ _PATTERNS: dict[str, list[str]] = {
         r"매수\s*내역",
         r"매도\s*내역",
         r"투자\s*내역",
+        # 시점 + 과거형 매수/매도/거래/주문 — "언제 샀지?", "어제 팔았어?", "최근에 매수했나?"
+        r"(언제|어제|최근에?|지난번에?|며칠|몇\s*일)\s*(샀|팔았|매수했|매도했|체결했|거래했|주문했)",
+        r"(샀|팔았|매수했|매도했|체결했|거래했|주문했)(지|나|니|어|요|나요|지요|었나|었지|었어)",
     ],
     # (12) 포트폴리오 분석 [AI agent]
     "portfolio": [
@@ -288,6 +291,7 @@ _PATTERNS: dict[str, list[str]] = {
 # 의도 검사 우선순위 (앞에 있을수록 먼저 검사)
 _PRIORITY = [
     "greeting",
+    "trades",         # 시점+과거형 매수/매도 패턴을 buy_intent보다 먼저 잡음
     "buy_intent",
     "sell_intent",
     "exchange_order",
@@ -301,7 +305,6 @@ _PRIORITY = [
     "chart_price",
     "ranking",
     "exchange_rate",
-    "trades",         # 거래내역 조회
 ]
 
 # 파라미터 추출 시 무시할 한글 단어 목록
@@ -420,13 +423,19 @@ def _extract_currency_pair(message: str) -> str:
 def _extract_balance_type(message: str) -> str:
     if re.search(r"총\s*자산", message):
         return "total_assets"
-    if re.search(r"현금|잔고|잔액|예수금|가용|투자\s*가능", message):
+    if re.search(r"현금|예수금|가용|투자\s*가능", message):
         return "cash"
-    return "summary"  # 기본값: 전체 요약
+    return "summary"  # "잔고" 단독 → 총 자산 + 현금 함께
 
 
 def _extract_params(intent: str, message: str) -> dict:
-    if intent in ("chart_price", "stock_news"):
+    if intent == "chart_price":
+        return {"stock_code": _extract_stock(message)}
+
+    if intent == "stock_news":
+        all_stocks = resolve_all_from_csv(_normalize_message(message))
+        if len(all_stocks) > 1:
+            return {"stock_codes": [code for code, _ in all_stocks]}
         return {"stock_code": _extract_stock(message)}
 
     if intent in ("buy_intent", "sell_intent"):
@@ -446,5 +455,9 @@ def _extract_params(intent: str, message: str) -> dict:
 
     if intent == "exchange_rate":
         return {"currency_pair": _extract_currency_pair(message)}
+
+    if intent == "trades":
+        stock_code = _extract_stock(message)
+        return {"stock_code": stock_code} if stock_code else {}
 
     return {}

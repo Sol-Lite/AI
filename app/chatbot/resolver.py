@@ -337,7 +337,7 @@ _SYNONYMS: dict[str, str] = {
 
     # ── NASDAQ 줄임말·별칭 ────────────────────────────────────────────────────────
     # CSV stock_name / stock_name_en 으로 직접 매칭되는 이름은 여기 넣지 않음
-    # 여기는 CSV에 없는 줄임말·오기·별명만 등록
+    # 여기는 CSV에 없는 줄임말·오기·별명만 등록"
     "엔디비아":      "엔비디아",          # 오기
     "마소":          "마이크로소프트",
     "구글":          "알파벳 A",
@@ -524,6 +524,54 @@ def resolve_from_csv(message: str) -> tuple[str | None, str | None]:
             return code, name_clean
 
     return None, None
+
+
+
+# 조사 뒤에 올 수 있는 패턴 (파티클 허용 동의어 확장에 사용)
+_PARTICLE_LOOKAHEAD = re.compile(r'(?=[이가은는을를와과랑나도,\s]|이랑|이나|$)')
+
+
+def resolve_all_from_csv(message: str) -> list[tuple[str, str]]:
+    """
+    메시지에서 여러 종목을 찾아 [(종목코드, 종목명), ...] 반환합니다.
+
+    - 조사가 붙은 alias도 처리 ("삼전이랑" → 삼성전자)
+    - 긴 이름 우선 매칭 + 어미 확인으로 부분 매칭 방지 ("SK하이닉스"에서 "SK" 제외)
+    """
+    original = _normalize_message(message)
+    expanded = _apply_synonyms(original)
+
+    # 조사 허용 추가 동의어 확장: "삼전이랑" 처럼 어미 때문에 _apply_synonyms에서 놓친 경우
+    for alias, canonical in sorted(_SYNONYMS.items(), key=lambda x: len(x[0]), reverse=True):
+        pat = re.compile(re.escape(alias) + r'(?=[이가은는을를와과랑나도,\s]|이랑|이나|$)')
+        if pat.search(original) and canonical not in expanded:
+            expanded = expanded + " " + canonical
+
+    kospi_list, nasdaq_ko, nasdaq_en = _load_stock_map()
+    exp_lower = expanded.lower()
+    found: list[tuple[str, str]] = []
+    seen_codes: set[str] = set()
+
+    # 긴 이름부터 매칭, 뒤에 한글/영문자 없음을 확인해 부분 매칭 방지
+    # ("SK하이닉스" 처리 후 "SK" 가 그 안에서 재매칭되는 것 방지)
+    all_ko = sorted(kospi_list + nasdaq_ko, key=lambda x: len(x[0]), reverse=True)
+    for name, code in all_ko:
+        if code in seen_codes:
+            continue
+        pat = re.compile(re.escape(name) + r'(?![가-힣a-zA-Z0-9])')
+        if pat.search(expanded):
+            found.append((code, name))
+            seen_codes.add(code)
+
+    for name_clean, code in sorted(nasdaq_en, key=lambda x: len(x[0]), reverse=True):
+        if code in seen_codes:
+            continue
+        pat = re.compile(re.escape(name_clean) + r'(?![a-z0-9])', re.IGNORECASE)
+        if pat.search(exp_lower):
+            found.append((code, name_clean))
+            seen_codes.add(code)
+
+    return found
 
 
 def resolve_name_from_code(stock_code: str) -> str | None:

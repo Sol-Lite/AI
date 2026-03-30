@@ -55,15 +55,21 @@ def save_conversation_turn(account_id: str, messages: list[dict]) -> None:
     })
 
 
-def get_chat_history(account_id: str, limit: int = 20) -> list[dict]:
+def get_chat_history(account_id: str, limit: int = 20, since: datetime | None = None) -> list[dict]:
     """
     최근 N개 턴을 조회하고 messages를 펼쳐서 Ollama messages 형식으로 반환합니다.
     tool_call 메시지도 포함되어 LLM이 이전 도구 선택 맥락을 파악할 수 있습니다.
+
+    since: 이 시각 이후의 메시지만 반환 (로그인 세션 분리에 사용)
     """
     col = get_chat_collection()
+    query: dict = {"account_id": str(account_id), "messages": {"$exists": True}}
+    if since is not None:
+        since_dt = datetime.utcfromtimestamp(since) if isinstance(since, (int, float)) else since
+        query["timestamp"] = {"$gte": since_dt}
     turns = list(
         col.find(
-            {"account_id": str(account_id), "messages": {"$exists": True}},
+            query,
             {"_id": 0, "account_id": 0, "timestamp": 0},
         ).sort("timestamp", DESCENDING).limit(limit)
     )

@@ -38,7 +38,7 @@ _TOOLS = [
                 "properties": {
                     "stock_code": {
                         "type": "string",
-                        "description": "종목 코드 또는 종목명 (예: 005930, 삼성전자, AAPL, SK하이닉스)",
+                        "description": "종목명으로 입력하세요 (예: 삼성전자, SK하이닉스, 엔비디아, Apple). 숫자 코드 입력 금지.",
                     }
                 },
                 "required": ["stock_code"],
@@ -55,7 +55,7 @@ _TOOLS = [
                 "properties": {
                     "stock_code": {
                         "type": "string",
-                        "description": "종목 코드 또는 종목명 (예: 005930, 삼성전자, AAPL)",
+                        "description": "종목명으로 입력하세요 (예: 삼성전자, 테슬라, Apple). 숫자 코드 입력 금지.",
                     }
                 },
                 "required": ["stock_code"],
@@ -125,7 +125,7 @@ _TOOLS = [
                     },
                     "stock_code": {
                         "type": "string",
-                        "description": "query_type=by_stock일 때 종목 코드 또는 종목명",
+                        "description": "query_type=by_stock일 때 종목명으로 입력하세요 (예: 삼성전자, 엔비디아, 미래에셋증권). 숫자 코드 입력 금지.",
                     },
                     "date": {
                         "type": "string",
@@ -386,6 +386,8 @@ def _build_system() -> str:
 거래내역 답변 규칙:
 - 거래 관련 질문에는 항상 날짜·수량·가격을 모두 포함해 답하세요. (거래_요약 필드 활용)
 - 예) "삼성전자 2026-03-27 16:12에 1주를 179,700원에 매도했어요."
+- 사용자가 날짜를 잘못 언급했을 경우(예: "어제 샀지?" → 실제 executed_at이 오늘) 반드시 실제 날짜로 정정하세요.
+- 예) 오늘이 2026-03-30인데 executed_at이 2026-03-30이면 → "어제가 아니라 오늘 10:15에 매수했어요."
 
 보유 종목 응답 규칙:
 - 보유 중: "네, X 종목 Y주 보유 중이에요." (다른 종목 나열 금지)
@@ -606,11 +608,12 @@ def ask_general(user_context: dict, user_message: str) -> tuple[str, list]:
         (response_text, tool_context)
         tool_context: tool_call + tool_result 메시지 목록 (저장은 호출자가 담당)
     """
-    account_id = str(user_context.get("account_id", ""))
+    account_id    = str(user_context.get("account_id", ""))
+    session_since = user_context.get("session_since")
 
     try:
         from app.db.mongo import get_chat_history
-        history = get_chat_history(account_id, limit=6)
+        history = get_chat_history(account_id, limit=6, since=session_since)
     except Exception:
         history = []
 

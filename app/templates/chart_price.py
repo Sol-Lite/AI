@@ -1,30 +1,18 @@
 """
-차트+시세 응답 템플릿
+차트+시세 응답 템플릿 (대화체)
 """
 
-_SEP = "━" * 26
+
+def _fmt_volume(volume: int) -> str:
+    if volume >= 10000:
+        man = volume // 10000
+        rem = volume % 10000
+        return f"{man:,}만 {rem:,}주" if rem else f"{man:,}만 주"
+    return f"{volume:,}주"
 
 
 def format_chart_price(data: dict) -> str:
-    """
-    시세 조회 결과를 사용자 친화적 텍스트로 변환합니다.
-
-    Args:
-        data: get_market_data(type="price") 반환값
-            {
-                "stock_name":    str,
-                "stock_code":    str,
-                "current_price": int | float,
-                "change":        int | float,   # 전일 대비 변화량
-                "change_rate":   float,          # 전일 대비 변화율 (%)
-                "open":          int | float,
-                "high":          int | float,
-                "low":           int | float,
-                "volume":        int,
-            }
-    """
     stock_name  = data.get("stock_name") or data.get("stock_code", "-")
-    stock_code  = data.get("stock_code", "")
     current     = float(data.get("current_price") or 0)
     change      = float(data.get("change") or 0)
     change_rate = float(data.get("change_rate") or 0)
@@ -34,36 +22,31 @@ def format_chart_price(data: dict) -> str:
     volume      = int(data.get("volume") or 0)
 
     if change > 0:
-        sign = "🔺"
+        icon   = "🔺"
+        trend  = "올랐어요"
     elif change < 0:
-        sign = "🔻"
+        icon   = "🔻"
+        trend  = "내렸어요"
     else:
-        sign = "-"
+        icon   = "-"
+        trend  = "보합이에요"
 
-    header = f"**{stock_name} ({stock_code})**" if stock_code else f"**{stock_name}**"
+    lines = []
 
-    sections = [header, _SEP]
+    # 첫 줄: 현재가
+    lines.append(f"{stock_name} 지금 **{current:,.0f}원**이에요.")
 
-    # 현재가 + 전일 대비
-    price_block = [
-        f"**{current:,.0f}원**",
-        f"전일 대비  {sign} {abs(change):,.0f}원  ({sign}{abs(change_rate):.2f}%)",
-    ]
-    sections.append("  \n".join(price_block))
-
-    # 시가 / 고가 / 저가
+    # 둘째 줄: 등락 + OHLC
+    r_sign = "+" if change_rate > 0 else ""
+    change_str = f"전일보다 {icon} {abs(change):,.0f}원 ({r_sign}{change_rate:.2f}%) {trend}"
     if open_price or high or low:
-        ohlc_block = [
-            "**시가 / 고가 / 저가**",
-            f"시가  {open_price:>13,.0f}원",
-            f"고가  {high:>13,.0f}원",
-            f"저가  {low:>13,.0f}원",
-        ]
-        sections.append("  \n".join(ohlc_block))
+        ohlc_str = f"오늘 시가 {open_price:,.0f}원 / 고가 {high:,.0f}원 / 저가 {low:,.0f}원이에요"
+        lines.append(f"{change_str}.  \n{ohlc_str}.")
+    else:
+        lines.append(f"{change_str}.")
 
-    # 거래량
+    # 셋째 줄: 거래량
     if volume:
-        sections.append(f"**거래량**  {volume:,}주")
+        lines.append(f"거래량은 {_fmt_volume(volume)}예요.")
 
-    sections.append(_SEP)
-    return "\n\n".join(sections)
+    return "  \n".join(lines)

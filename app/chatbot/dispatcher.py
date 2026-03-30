@@ -53,7 +53,7 @@ def _handle_index(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_data(type="index")
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "지수 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_index(data, user_message=message)}
+    return {"reply": format_index(data, user_message=message), "_is_template": True}
 
 
 def _handle_exchange_rate(params: dict, user_context: dict, message: str) -> dict:
@@ -61,7 +61,7 @@ def _handle_exchange_rate(params: dict, user_context: dict, message: str) -> dic
     data = get_market_data(type="exchange", currency_pair=currency_pair)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "환율 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_exchange_rate(data)}
+    return {"reply": format_exchange_rate(data), "_is_template": True}
 
 
 def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
@@ -70,7 +70,7 @@ def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_data(type="ranking", ranking_type=ranking_type, market=market)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "순위 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_ranking(data)}
+    return {"reply": format_ranking(data), "_is_template": True}
 
 
 def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
@@ -81,10 +81,10 @@ def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_data(type="price", stock_code=stock_code)
     if isinstance(data, dict) and data.get("error"):
         if data.get("error") == "not_found":
-            return {"reply": f"'{stock_code}' 종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
+            return {"reply": f"종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
         return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
     tool_ctx = _get_tool_context("get_stock_price", {"stock_code": stock_code}, data)
-    return {"reply": format_chart_price(data), "_tool_context": tool_ctx}
+    return {"reply": format_chart_price(data), "_tool_context": tool_ctx, "_is_template": True}
 
 
 def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
@@ -92,13 +92,13 @@ def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "잔고 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."}
     balance_type = params.get("balance_type", "summary")
-    return {"reply": format_balance(data, balance_type=balance_type)}
+    return {"reply": format_balance(data, balance_type=balance_type), "_is_template": True}
 
 
 def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
     stock_code = params.get("stock_code")
     if not stock_code:
-        return {"reply": "어떤 종목을 매수하시겠어요? 종목명을 알려주세요.\n예) 신한지주 매수"}
+        return {"reply": "어떤 종목을 거래하시겠어요? 종목명을 알려주세요.\n예) 신한지주 거래/매수/매도"}
     resolved  = _resolve_code(stock_code) or stock_code
     disp_name = params.get("stock_name") or resolved
     return {
@@ -137,19 +137,19 @@ def _handle_market_summary(params: dict, user_context: dict, message: str) -> di
         _get_tool_context("get_market_summary", {"market": "korea"}, korea)
         + _get_tool_context("get_market_summary", {"market": "us"}, us)
     )
-    return {"reply": f"{korea_text}\n\n{us_text}", "_tool_context": tool_ctx}
+    return {"reply": f"{korea_text}\n\n{us_text}", "_tool_context": tool_ctx, "_is_template": True}
 
 
 def _handle_korea_summary(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_summary(type="korea")
     tool_ctx = _get_tool_context("get_market_summary", {"market": "korea"}, data)
-    return {"reply": format_korea_summary(data), "_tool_context": tool_ctx}
+    return {"reply": format_korea_summary(data), "_tool_context": tool_ctx, "_is_template": True}
 
 
 def _handle_us_summary(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_summary(type="us")
     tool_ctx = _get_tool_context("get_market_summary", {"market": "us"}, data)
-    return {"reply": format_us_summary(data), "_tool_context": tool_ctx}
+    return {"reply": format_us_summary(data), "_tool_context": tool_ctx, "_is_template": True}
 
 
 _SECTOR_GUIDE = (
@@ -166,8 +166,22 @@ _SECTOR_GUIDE = (
 
 def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     from app.chatbot.resolver import _SECTOR_KEYWORDS
-    stock_code = params.get("stock_code")
-    account_id = user_context.get("account_id", "")
+    from app.templates.stock_news import format_holdings_news
+    stock_code  = params.get("stock_code")
+    stock_codes = params.get("stock_codes")  # 복수 종목
+
+    # 여러 종목 뉴스 — 종목별 최신 1건씩 표시
+    if stock_codes:
+        results = []
+        tool_ctx: list[dict] = []
+        for code in stock_codes:
+            data = get_market_summary(type="stock_news", stock_code=code)
+            if isinstance(data, dict) and not data.get("error"):
+                results.append(data)
+                tool_ctx.extend(_get_tool_context("get_stock_news", {"stock_code": code}, data))
+        if not results:
+            return {"reply": "조회된 뉴스가 없어요."}
+        return {"reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
 
     # 섹터/테마 키워드 질문이면 안내 메시지 반환
     if not stock_code or stock_code.lower() in _SECTOR_KEYWORDS:
@@ -181,7 +195,7 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     if isinstance(data, dict) and data.get("error"):
         return {"reply": data["error"]}
     tool_ctx = _get_tool_context("get_stock_news", {"stock_code": stock_code}, data)
-    return {"reply": format_stock_news(data), "_tool_context": tool_ctx}
+    return {"reply": format_stock_news(data), "_tool_context": tool_ctx, "_is_template": True}
 
 
 _HOLDINGS_NEWS_RE = re.compile(
@@ -249,7 +263,7 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
             from app.data.portfolio import get_portfolio_summary
             data = get_portfolio_summary(account_id)
             tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": "holdings"}, data)
-            return {"reply": format_portfolio(data), "_tool_context": tool_ctx}
+            return {"reply": format_portfolio(data), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
             pass
 
@@ -273,7 +287,7 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
                     "news":       news_data.get("news", []),
                 })
             tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": "holdings"}, {"holdings": holdings})
-            return {"reply": format_holdings_news(results), "_tool_context": tool_ctx}
+            return {"reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
             pass
 
@@ -293,7 +307,7 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
             from app.data.portfolio import get_portfolio_summary
             data = get_portfolio_summary(account_id)
             tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": metric_type}, data)
-            return {"reply": format_portfolio_analysis(data, metric_type), "_tool_context": tool_ctx}
+            return {"reply": format_portfolio_analysis(data, metric_type), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
             pass
 
@@ -307,10 +321,26 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
 
 
 def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
-    from app.templates.trades import format_trades, format_trades_by_date
+    from app.templates.trades import format_trades, format_trades_by_date, format_trades_by_stock
 
     msg = message.strip()
     account_id = user_context.get("account_id", "")
+
+    # 종목 지정 + 시점/과거형 패턴 → by_stock 직접 처리
+    if params.get("stock_code"):
+        try:
+            from app.data.trades import get_trades_by_stock
+            stock_code = params["stock_code"]
+            data = get_trades_by_stock(account_id, stock_code=stock_code)
+            tool_ctx = _get_tool_context("get_trade_history",
+                                         {"query_type": "by_stock", "stock_code": stock_code}, data)
+            return {"reply": format_trades_by_stock(data), "_tool_context": tool_ctx, "_is_template": True}
+        except Exception:
+            pass
+    # 종목 미지정 + 과거형 패턴 (로그아웃 후 맥락 없음) → 안내문구
+    elif re.search(r"(언제|어제|최근에?|며칠|몇\s*일)\s*(샀|팔았|매수했|매도했|거래했|주문했)"
+                   r"|(샀|팔았|매수했|매도했|거래했|주문했)(지|나|니|어|요)", msg):
+        return {"reply": "어떤 종목의 거래내역을 조회할까요? 종목명을 함께 알려주세요.\n예) 삼성전자 언제 샀지?, 엔비디아 최근 거래내역"}
 
     # 날짜별 거래내역 조회 → 템플릿
     if _TRADES_BY_DATE_RE.search(msg):
@@ -321,7 +351,7 @@ def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
                 data = get_trades_by_date(account_id, m.group())
                 tool_ctx = _get_tool_context("get_trade_history",
                                              {"query_type": "by_date", "date": m.group()}, data)
-                return {"reply": format_trades_by_date(data), "_tool_context": tool_ctx}
+                return {"reply": format_trades_by_date(data), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
             pass
 
@@ -331,7 +361,7 @@ def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
             from app.data.trades import get_trades_template_data
             data = get_trades_template_data(account_id)
             tool_ctx = _get_tool_context("get_trade_history", {"query_type": "recent"}, data)
-            return {"reply": format_trades(data), "_tool_context": tool_ctx}
+            return {"reply": format_trades(data), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
             pass
 

@@ -101,3 +101,34 @@ def format_trades_by_date(data: dict) -> str:
 
     lines.append(_SEP)
     return "  \n".join(lines)
+
+
+def format_trades_by_stock(data: dict) -> str:
+    """
+    특정 종목 거래내역 템플릿 (대화체).
+    data: {"stock_name", "count", "trades": [...]}
+    """
+    name   = data.get("stock_name") or data.get("stock_code", "-")
+    count  = data.get("count", 0)
+    trades = data.get("trades", [])
+
+    if count == 0:
+        return f"{name} 거래 이력이 없어요."
+
+    lines = [f"**{name}** 거래내역이에요. (총 {count}건)"]
+
+    for idx, t in enumerate(trades[:5], start=1):
+        side  = t.get("side", "buy")
+        label = _SIDE_ICON.get(side, "🔵 매수")
+        price = t.get("price", 0)
+        qty   = t.get("quantity", 0)
+        dt    = _fmt_dt(t.get("executed_at", ""))
+        lines.append(
+            f"{idx}. {label}  \n"
+            f"　　{dt}  /  {price:,.0f}원 × {qty}주"
+        )
+
+    if count > 5:
+        lines.append(f"외 {count - 5}건 더 있어요.")
+
+    return "  \n".join(lines)

@@ -28,6 +28,7 @@ def get_user_context(
             "user_id": cached["user_id"],
             "account_id": cached["account_id"],
             "token": token,
+            "session_since": cached["session_since"],
         }
 
     try:
@@ -54,8 +55,14 @@ def get_user_context(
             "user_id": int(user_id),
             "account_id": int(account_id),
             "expires_at": now + _TOKEN_CACHE_TTL_SECONDS,
+            "session_since": now,   # 토큰 최초 등록 시각 = 로그인 시각
         }
-        return {"user_id": int(user_id), "account_id": int(account_id), "token": token}
+        return {
+            "user_id": int(user_id),
+            "account_id": int(account_id),
+            "token": token,
+            "session_since": now,
+        }
 
     except httpx.RequestError as e:
         raise HTTPException(status_code=502, detail=f"Spring 서버 연결 실패: {e}")
