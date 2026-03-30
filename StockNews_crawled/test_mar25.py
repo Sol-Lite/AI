@@ -17,7 +17,7 @@ from datetime import datetime
 from pymongo import MongoClient
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import (
+from Stocknews_final.config import (
     MONGO_URI, DB_NAME, COLLECTION_NAME,
     HEADERS, NEWS_API_URL, ARTICLE_URL,
     MEDIA_KEYWORDS,

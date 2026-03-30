@@ -15,11 +15,11 @@ from pymongo import MongoClient
 from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import (
+from Stocknews_final.config import (
     MONGO_URI, DB_NAME, COLLECTION_NAME,
     HEADERS, ARTICLE_URL, MEDIA_KEYWORDS, SCHEDULE_INTERVAL,
 )
-from summarizer import summarize_articles
+from Stocknews_final.summarizer import summarize_articles
 
 PC_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

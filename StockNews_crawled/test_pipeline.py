@@ -12,7 +12,7 @@ from naver_stock_news_scraper import (
     load_kospi200, load_nasdaq100,
     crawl_stock_news, deduplicate, collection,
 )
-from summarizer import summarize_articles
+from Stocknews_final.summarizer import summarize_articles
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TARGET = 3
