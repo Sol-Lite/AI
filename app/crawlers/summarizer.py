@@ -1,3 +1,4 @@
+import threading
 from transformers import PreTrainedTokenizerFast, BartForConditionalGeneration
 
 MODEL_NAME = "EbanLee/kobart-summary-v3"
@@ -6,19 +7,21 @@ MAX_SUMMARY_LEN = 300
 
 _tokenizer = None
 _model = None
+_lock = threading.Lock()
 
 
 def _load_model():
     global _tokenizer, _model
-    if _tokenizer is None:
-        print(f"모델 로딩 중: {MODEL_NAME}")
-        _tokenizer = PreTrainedTokenizerFast.from_pretrained(
-            MODEL_NAME, local_files_only=True
-        )
-        _model = BartForConditionalGeneration.from_pretrained(
-            MODEL_NAME, local_files_only=True
-        )
-        print("모델 로드 완료")
+    with _lock:
+        if _tokenizer is None:
+            print(f"모델 로딩 중: {MODEL_NAME}")
+            _tokenizer = PreTrainedTokenizerFast.from_pretrained(
+                MODEL_NAME, local_files_only=True
+            )
+            _model = BartForConditionalGeneration.from_pretrained(
+                MODEL_NAME, local_files_only=True
+            )
+            print("모델 로드 완료")
 
 
 def summarize(text: str) -> str:

@@ -41,11 +41,13 @@
 
 # main.py
 import re
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from app.core.auth import get_user_context
 from app.chatbot.router import detect
 from app.chatbot.dispatcher import dispatch
+from app import crawler
 
 # 조합되지 않은 한글 자모 감지 (오타/IME 미완성 입력)
 _JAMO_RE = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]")
@@ -158,7 +160,15 @@ def _try_stock_shortcut(message: str, account_id: str, session_since: float | No
 
     return None
 
-app = FastAPI(title="Investment Chatbot")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    crawler.start()   # 서버 시작 시 크롤러 백그라운드 스레드 실행
+    yield
+    crawler.stop()    # 서버 종료 시 크롤러 정상 종료
+
+
+app = FastAPI(title="Investment Chatbot", lifespan=lifespan)
 
 # 이전 대화 맥락이 있어야 의미가 명확해지는 모호한 패턴
 _AMBIGUOUS_RE = re.compile(
