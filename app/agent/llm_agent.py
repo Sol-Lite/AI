@@ -204,19 +204,38 @@ def _make_executor(account_id: str):
             result = _execute(name, args, account_id)
         except Exception as e:
             result = {"error": str(e)}
-        result_str = json.dumps(result, ensure_ascii=False)
-        try:
-            from app.db.mongo import save_tool_log
-            save_tool_log(account_id, name, args, result_str)
-        except Exception:
-            pass
-        return result_str
+        return json.dumps(result, ensure_ascii=False)
     return execute
 
 
+_EN_STOCK_MAP = {
+    "samsung":          "삼성전자",
+    "hyundai":          "현대차",
+    "kia":              "기아",
+    "kakao":            "카카오",
+    "naver":            "네이버",
+    "hynix":            "SK하이닉스",
+    "sk hynix":         "SK하이닉스",
+    "lg":               "LG전자",
+    "lg electronics":   "LG전자",
+    "posco":            "POSCO홀딩스",
+    "krafton":          "크래프톤",
+    "ncsoft":           "엔씨소프트",
+    "netmarble":        "넷마블",
+    "celltrion":        "셀트리온",
+    "samsung bio":      "삼성바이오로직스",
+    "kakaopay":         "카카오페이",
+    "kakaobank":        "카카오뱅크",
+}
+
+
 def _resolve_stock(stock_input: str) -> str:
-    """줄임말/동의어를 종목코드로 변환합니다. 예) '하닉' → '000660'"""
+    """줄임말/동의어/영문명을 종목코드로 변환합니다. 예) '하닉' → '000660', 'Samsung' → '005930'"""
     from app.chatbot.resolver import resolve_from_csv
+    # 영문 입력 → 한국어 변환
+    ko = _EN_STOCK_MAP.get(stock_input.lower().strip())
+    if ko:
+        stock_input = ko
     code, _ = resolve_from_csv(stock_input)
     return code or stock_input
 
@@ -334,8 +353,9 @@ def _build_system() -> str:
 - 도구를 호출하지 않고 수치를 생성하는 것은 절대 금지입니다.
 - 도구 결과에 없는 정보는 답변에 절대 포함하지 마세요.
 - 도구 결과의 값은 반드시 그대로 복사하세요. 숫자를 다시 계산하거나 포맷을 바꾸는 것은 절대 금지입니다.
+- 방금 호출한 도구 결과의 수치만 사용하세요. 이전 대화에 나온 수치(예: 이전 turn의 수익률, 가격)를 현재 답변에 혼용하는 것은 절대 금지입니다.
 - get_stock_price 결과가 있으면 반드시 이 형식으로 답하세요: "{stock_name} 현재가는 {current_price}이고, 전일 대비 {change} ({change_rate})입니다."
-- 도구 결과가 비어있거나 오류인 경우: get_stock_news 결과면 "{종목명}의 뉴스는 아직 수집되지 않았어요."라고 답하고, 그 외 도구는 "데이터를 불러올 수 없어요."라고 답하세요.
+- 도구 결과에 "error" 또는 "not_found"가 포함된 경우: 데이터를 직접 생성하거나 추측하는 것은 절대 금지입니다. get_stock_news 결과면 "{종목명}의 뉴스는 아직 수집되지 않았어요."라고 답하고, 그 외 도구는 "데이터를 불러올 수 없어요."라고 답하세요.
 
 이전 대화 맥락을 반드시 활용하세요.
 직전에 사용한 도구와 동일한 도구를 사용하세요.
@@ -371,12 +391,25 @@ def _build_system() -> str:
 - "IT 비중이 높지 않아?" → "현재 섹터 데이터에 IT 섹터는 없고, 기타 100%로 분류되어 있어요."
 이전 assistant 메시지가 긴 템플릿 형식이었어도 후속 답변은 반드시 짧게 유지하세요.
 
+[도구 호출 형식 - 반드시 준수]
+도구가 필요하면 반드시 function call(tool_calls) 형식을 사용하세요.
+"get_stock_price(삼성전자)" 또는 "get_stock_price(Samsung)" 같은 텍스트 형식으로 작성하는 것은 절대 금지입니다.
+도구 인자의 종목명은 반드시 한국어로 입력하세요 (예: 삼성전자, SK하이닉스 — Samsung, Hyundai 금지).
+
+[다단계 질문 처리 - 반드시 준수]
+질문에 포트폴리오 조건(제일 오른, 가장 수익률 높은, 최고/최저 종목 등)과 현재가/뉴스 조회가 함께 있으면 도구를 반드시 두 번 호출하세요.
+1단계: get_portfolio_info → 대상 종목 확인
+2단계: get_stock_price 또는 get_stock_news → 해당 종목 조회
+예) "포트폴리오에서 제일 많이 오른 종목 현재가" → get_portfolio_info("risk") → best_stock 확인 → get_stock_price(best_stock 종목명)
+포트폴리오의 return_rate를 현재가 등락률로 사용하는 것은 절대 금지입니다. 반드시 get_stock_price를 별도로 호출하세요.
+
 도구 선택 기준:
 - 특정 종목 현재가/주가/시세, 또는 종목명만 언급 → get_stock_price
 - 종목 뉴스/기사 → get_stock_news
 - 한국/미국 시장 시황 요약 → get_market_summary (market 선택)
 - 포트폴리오 질문 → get_portfolio_info (info_type 선택)
 - 거래내역 질문 → get_trade_history (query_type 선택)
+- 손익/평가손익/실현손익/수익률/수익금 질문은 종목명이 포함되어 있어도 get_portfolio_info를 사용하세요. get_stock_price를 사용하지 마세요.
 
 포트폴리오 info_type 선택:
 - 보유 종목, 종목 비중, 보유 여부 → holdings
@@ -410,6 +443,34 @@ def _build_system() -> str:
 - "volatility", "mdd", "best_stock", "unrealized_pnl" 등 영어 변수명
 - 투자 조언이나 포트폴리오 조정 권유
 - 증권사 이름(미래에셋, 키움 등)"""
+
+
+# ── 텍스트 형식 tool call fallback ───────────────────────────────────────────
+
+_TEXT_TOOL_RE = re.compile(
+    r'^(get_stock_price|get_stock_news|get_portfolio_info|get_trade_history|get_market_summary)\s*\(([^)]*)\)\s*$'
+)
+_TOOL_ARG_KEY = {
+    "get_stock_price":    "stock_code",
+    "get_stock_news":     "stock_code",
+    "get_portfolio_info": "info_type",
+    "get_market_summary": "market",
+    "get_trade_history":  "query_type",
+}
+
+
+def _parse_text_tool_call(content: str) -> dict | None:
+    """
+    LLM이 function call 대신 텍스트로 "get_stock_price(삼성전자)" 같이 출력한 경우를 감지합니다.
+    감지되면 tool_calls 형식으로 변환해 반환합니다.
+    """
+    m = _TEXT_TOOL_RE.match(content.strip())
+    if not m:
+        return None
+    tool_name = m.group(1)
+    arg_val   = m.group(2).strip().strip("\"'")
+    arg_key   = _TOOL_ARG_KEY.get(tool_name, "stock_code")
+    return {"function": {"name": tool_name, "arguments": {arg_key: arg_val}}}
 
 
 # ── ReAct 루프 ────────────────────────────────────────────────────────────────
@@ -453,8 +514,17 @@ def _run_agent(
             tool_calls = message.get("tool_calls") or []
 
             if not tool_calls:
-                intermediate = messages[turn_start:]
-                return message.get("content", "답변을 생성하지 못했습니다."), intermediate
+                content = message.get("content", "").strip()
+                # LLM이 응답을 따옴표로 감싸는 경우 제거 (예: '"삼성전자 현재가는..."')
+                if len(content) >= 2 and content[0] == '"' and content[-1] == '"':
+                    content = content[1:-1].strip()
+                # LLM이 function call 대신 텍스트로 tool call을 작성한 경우 직접 실행
+                synthetic = _parse_text_tool_call(content)
+                if synthetic:
+                    tool_calls = [synthetic]
+                else:
+                    intermediate = messages[turn_start:]
+                    return content or "답변을 생성하지 못했습니다.", intermediate
 
             messages.append({"role": "assistant", "tool_calls": tool_calls})
             for call in tool_calls:
@@ -470,6 +540,37 @@ def _run_agent(
                     tool_result = execute_tool(name, args)
                 except Exception as e:
                     tool_result = json.dumps({"error": str(e)}, ensure_ascii=False)
+
+                # 에러 결과를 LLM으로 다시 보내면 환각 발생 → 즉시 종료
+                try:
+                    _parsed = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                    if isinstance(_parsed, dict) and _parsed.get("error"):
+                        intermediate = messages[turn_start:]
+                        if name == "get_stock_news":
+                            stock_name = args.get("stock_code", "해당 종목")
+                            return f"{stock_name}의 뉴스는 아직 수집되지 않았어요.", intermediate
+                        return "데이터를 불러올 수 없어요.", intermediate
+                except Exception:
+                    pass
+
+                # get_portfolio_info 결과에 특정 종목이 없으면 즉시 "미보유" 반환
+                if name == "get_portfolio_info":
+                    try:
+                        _pf = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                        from app.chatbot.resolver import resolve_from_csv, _normalize_message as _nm
+                        _code, _sname = resolve_from_csv(_nm(user_message))
+                        if _code and _sname:
+                            _all = (
+                                [h.get("name", "") for h in _pf.get("holdings", [])]
+                                + [s.get("name", "") for s in _pf.get("stock_returns", [])]
+                                + [_pf.get("best_stock", {}).get("name", "")]
+                                + [_pf.get("worst_stock", {}).get("name", "")]
+                            )
+                            if _sname not in _all:
+                                return f"{_sname}은(는) 현재 보유 종목이 아니에요.", messages[turn_start:]
+                    except Exception:
+                        pass
+
                 messages.append({"role": "tool", "name": name, "content": tool_result})
 
     return "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.", []
@@ -498,8 +599,19 @@ def _extract_last_stock(history: list) -> str | None:
     """
     recent = history[-6:] if len(history) > 6 else history
 
-    # 1. 가장 최근 tool_call 인자에서 stock_code 추출
+    # 1. 가장 최근 tool 결과 메시지에서 stock_name 추출 (코드가 아닌 이름 우선)
     _STOCK_TOOLS = {"get_stock_price", "get_stock_news"}
+    for msg in reversed(recent):
+        if msg.get("role") == "tool" and msg.get("name") in _STOCK_TOOLS:
+            try:
+                data = json.loads(msg["content"]) if isinstance(msg["content"], str) else msg["content"]
+                sname = data.get("stock_name", "")
+                if sname and len(sname) >= 2:
+                    return sname
+            except Exception:
+                pass
+
+    # 1-b. tool 결과에 stock_name 없으면 tool_call 인자에서 stock_code 추출
     for msg in reversed(recent):
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             for call in msg["tool_calls"]:
@@ -511,12 +623,10 @@ def _extract_last_stock(history: list) -> str | None:
                         args = json.loads(args)
                     except Exception:
                         args = {}
-                # get_stock_price / get_stock_news
                 if name in _STOCK_TOOLS:
                     stock = args.get("stock_code", "")
                     if stock:
                         return stock
-                # get_trade_history(by_stock) → stock_code 인자
                 if name == "get_trade_history" and args.get("query_type") == "by_stock":
                     stock = args.get("stock_code", "")
                     if stock:
@@ -535,7 +645,11 @@ def _extract_last_stock(history: list) -> str | None:
             if m:
                 candidate = m.group(1).strip()
                 if len(candidate) >= 2 and candidate not in _SKIP_WORDS:
-                    return candidate
+                    # 실제 종목명인지 검증 (예: "환전 정보", "주문 정보" 같은 안내문구 제외)
+                    from app.chatbot.resolver import resolve_from_csv
+                    _c, _ = resolve_from_csv(candidate)
+                    if _c:
+                        return candidate
 
     return None
 
@@ -545,6 +659,19 @@ _PRICE_NEWS_KW = {
     # 거래 follow-up: "몇 주 샀지", "얼마에 팔았지" 등
     "샀지", "팔았지", "매수했", "매도했", "거래했", "체결했",
     "몇 주", "수량", "몇 개",
+}
+
+# 포트폴리오 도구를 써야 하는 키워드 — get_stock_price로 오인하기 쉬운 단어들
+_PORTFOLIO_FORCE_KW = {"손익", "평가손익", "실현손익", "수익률", "수익금", "손실금", "평가액", "수익"}
+_PORTFOLIO_FORCE_INFO: dict[str, str] = {
+    "손익":     "risk",
+    "평가손익": "risk",
+    "실현손익": "risk",
+    "수익률":   "returns",
+    "수익금":   "risk",
+    "손실금":   "risk",
+    "평가액":   "holdings",
+    "수익":     "risk",
 }
 
 # 이전에 조회한 종목끼리 비교 — 이전 get_stock_price 결과를 직접 참조해서 답해야 하는 경우
@@ -622,7 +749,13 @@ def _enrich_with_context(user_message: str, history: list) -> str:
     if _THAT_STOCK_RE.search(msg):
         stock = _extract_last_stock(history)
         if stock:
-            return _THAT_STOCK_RE.sub(stock, msg)
+            msg = _THAT_STOCK_RE.sub(stock, msg)
+
+    # ── 1-b. 포트폴리오 키워드 감지 → get_portfolio_info 도구 지시 주입 ─────
+    for kw in _PORTFOLIO_FORCE_KW:
+        if kw in msg:
+            info_type = _PORTFOLIO_FORCE_INFO.get(kw, "risk")
+            return f"{msg}\n(get_portfolio_info(info_type={info_type})를 사용하세요. get_stock_price 사용 금지)"
 
     # ── 2. 가격/뉴스/거래 키워드 있는데 종목명 없음 → 직전 종목 주입 ─────────
     if any(kw in msg for kw in _PRICE_NEWS_KW) and not _has_stock_in_msg(msg):
@@ -679,6 +812,14 @@ def ask_general(user_context: dict, user_message: str) -> tuple[str, list]:
         history = get_chat_history(account_id, limit=6, since=session_since)
     except Exception:
         history = []
+
+    # 템플릿 placeholder를 history에서 제거 — agent가 복사하는 것을 방지
+    _PLACEHOLDER = "조회한 데이터를 보여드렸어요."
+    history = [
+        {**msg, "content": ""}  if msg.get("role") == "assistant" and msg.get("content") == _PLACEHOLDER
+        else msg
+        for msg in history
+    ]
 
     enriched_message = _enrich_with_context(user_message, history)
     execute_tool = _make_executor(account_id)

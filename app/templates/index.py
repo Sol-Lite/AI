@@ -13,17 +13,57 @@ _INDEX_KEYWORD_TO_NAMES = {
     "나스닥":  ["NASDAQ", "나스닥", "NAS@IXIC", "IXIC"],
     "s&p":    ["S&P 500", "S&P500"],
     "에스앤피": ["S&P 500"],
-    "다우":    ["DOW", "DJIA", "DOW JONES"],   # 다우, 다우존스 모두 처리
+    "다우":    ["DOW", "DJIA", "DOW JONES"],
     "닛케이":  ["NIKKEI", "N225"],
     "항셍":   ["HANG SENG", "HSI"],
 }
+
+# "한국 지수" / "국내 지수" → 코스피 + 코스닥
+_KOREAN_INDEX_NAMES = ["KOSPI", "KOSDAQ"]
+
+# "미국 지수" / "해외 지수" / "국외 지수" → 나스닥 + S&P
+_US_INDEX_NAMES = ["NASDAQ", "NAS@IXIC", "IXIC", "나스닥", "S&P 500", "S&P500"]
+
+# 환율 관련 name 패턴 (지수 결과에서 제외)
+_EXCHANGE_RATE_KEYWORDS = ["USD", "EUR", "JPY", "CNY", "환율", "원달러", "달러원", "USDKRW", "FX"]
+
+
+def _is_exchange_rate(item: dict) -> bool:
+    name_upper = item.get("name", "").upper()
+    code_upper = item.get("code", "").upper()
+    return any(kw.upper() in name_upper or kw.upper() in code_upper for kw in _EXCHANGE_RATE_KEYWORDS)
+
+
+def _find_items_by_api_names(items: list, api_names: list) -> list:
+    result = []
+    for item in items:
+        item_name_upper = item.get("name", "").upper()
+        if any(n.upper() in item_name_upper for n in api_names):
+            if item not in result:
+                result.append(item)
+    return result
 
 
 def _filter_for_message(items: list, user_message: str) -> list:
     """사용자 메시지에서 요청한 지수만 추출. 해당 지수가 API에 없으면 '조회 불가' placeholder 추가."""
     msg_lower = user_message.lower()
-    matched = []
 
+    # 환율 항목 사전 제거
+    items = [item for item in items if not _is_exchange_rate(item)]
+
+    # 한국 지수 / 국내 지수
+    is_korean = any(kw in msg_lower for kw in ["한국 지수", "한국지수", "국내 지수", "국내지수", "한국증시 지수"])
+    # 미국 지수 / 해외 지수 / 국외 지수
+    is_us = any(kw in msg_lower for kw in ["미국 지수", "미국지수", "국외 지수", "국외지수", "해외 지수", "해외지수"])
+
+    if is_korean:
+        return _find_items_by_api_names(items, _KOREAN_INDEX_NAMES)
+
+    if is_us:
+        return _find_items_by_api_names(items, _US_INDEX_NAMES)
+
+    # 개별 키워드 매칭
+    matched = []
     for kw, api_names in _INDEX_KEYWORD_TO_NAMES.items():
         if kw not in msg_lower:
             continue
@@ -46,7 +86,7 @@ def _filter_for_message(items: list, user_message: str) -> list:
                 "changeRate": None,
             })
 
-    # 아무 키워드도 매칭 안 됐으면 전체 반환
+    # 아무 키워드도 매칭 안 됐으면 환율 제외한 전체 반환
     return matched if matched else items
 
 

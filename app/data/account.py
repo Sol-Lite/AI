@@ -4,8 +4,7 @@ dispatcher 의도: balance
 호출: dispatcher._handle_balance() → get_db_data(type="balance") → format_balance()
 """
 import requests
-
-SPRING_BASE_URL = "http://localhost:8080"
+from app.core.config import SPRING_BASE_URL, HTTP_TIMEOUT_SECONDS
 
 
 def get_db_data(type: str, user_context: dict, **kwargs) -> dict:
@@ -28,7 +27,7 @@ def _call_spring_api(path: str, token: str = "", params: dict | None = None) -> 
     try:
         url     = f"{SPRING_BASE_URL}{path}"
         headers = {"Authorization": f"Bearer {token}"} if token else {}
-        res     = requests.get(url, params=params, headers=headers, timeout=3)
+        res     = requests.get(url, params=params, headers=headers, timeout=HTTP_TIMEOUT_SECONDS)
         res.raise_for_status()
         return res.json()
     except Exception as e:

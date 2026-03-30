@@ -17,6 +17,7 @@ import requests
 from datetime import date as date_type
 from app.db.oracle import resolve_stock_code
 from app.chatbot.resolver import resolve_name_from_code
+from app.core.config import SPRING_BASE_URL, HTTP_TIMEOUT_SECONDS
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 
@@ -81,12 +82,10 @@ def get_market_data(type: str, **kwargs):
     else:
         raise ValueError(f"Unknown type: {type}")
 
-SPRING_BASE_URL = "http://localhost:8080"
-
 def _call_spring_api(path: str, params: dict | None = None):
     try:
         url = f"{SPRING_BASE_URL}{path}"
-        res = requests.get(url, params=params, timeout=3)
+        res = requests.get(url, params=params, timeout=HTTP_TIMEOUT_SECONDS)
         res.raise_for_status()
         return res.json()
     except Exception as e:

@@ -18,6 +18,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 MONGO_DB  = os.getenv("MONGO_DB", "mockstock")
 
 SPRING_BASE_URL = os.getenv("SPRING_BASE_URL", "http://localhost:8080")
+HTTP_TIMEOUT_SECONDS = float(os.getenv("HTTP_TIMEOUT_SECONDS", "3"))
 
 
 class Settings(BaseSettings):

@@ -229,6 +229,7 @@ _PATTERNS: dict[str, list[str]] = {
         r"s&p",
         r"sp\s*500",
         r"에스앤피",
+        r"에스엔피",
         r"다우",
         r"다우\s*존스",
         r"닛케이",

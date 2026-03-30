@@ -182,6 +182,9 @@ _COMPARISON_RE = re.compile(
     r"더\s*(많이|크게)?\s*(오른|내린|올랐|내렸)"
 )
 
+# 종목명과 함께 와도 포트폴리오 도구가 필요한 키워드 — chart_price 오라우팅 방지
+_PORTFOLIO_KW_RE = re.compile(r"손익|평가손익|실현손익|수익금|손실금|평가액")
+
 # "보유 종목 중 가장 많이 오른 건?" 처럼 포트폴리오 대상 비교 — 항상 agent로
 _PORTFOLIO_COMPARISON_RE = re.compile(
     r"보유\s*(종목|주식|중|한).*?(가장|제일|젤|많이|오른|내린|올랐|내렸|수익|손해|높|낮)"
@@ -246,14 +249,15 @@ async def chat_endpoint(
     if _JAMO_RE.search(req.message):
         return ChatResponse(reply="입력이 완성되지 않은 것 같아요. 다시 입력해 주세요.\n예) 삼성전자 현재가")
 
-    # 짧은 단답 → 종목명이면 통과, 아닌 경우만 안내문구
+    # 짧은 단답 → 의도 키워드 또는 종목명이면 통과, 아닌 경우만 안내문구
     _stripped = req.message.strip()
     if len(_stripped) <= 2 and re.fullmatch(r"[가-힣a-zA-Z0-9]{1,2}", _stripped):
-        from app.chatbot.resolver import resolve_from_csv, _normalize_message as _nm
-        _code, _ = resolve_from_csv(_nm(_stripped))
-        if not _code:
-            from app.templates.guide import _GUIDE_MESSAGE
-            return ChatResponse(reply=_GUIDE_MESSAGE)
+        if _stripped not in _INTENT_KW:
+            from app.chatbot.resolver import resolve_from_csv, _normalize_message as _nm
+            _code, _ = resolve_from_csv(_nm(_stripped))
+            if not _code:
+                from app.templates.guide import _GUIDE_MESSAGE
+                return ChatResponse(reply=_GUIDE_MESSAGE)
 
     # 종목명만 있는 follow-up + 직전 tool 재사용 → LLM 없이 직접 처리
     shortcut = _try_stock_shortcut(req.message, account_id, session_since)
@@ -264,6 +268,10 @@ async def chat_endpoint(
 
     if result is None:
         intent, params = detect(req.message)
+
+        # 손익/평가손익 키워드 → chart_price로 잘못 라우팅되는 것을 방지, 항상 agent로
+        if intent == "chart_price" and _PORTFOLIO_KW_RE.search(req.message):
+            intent = "unknown"
 
         # 모호한 질문 + 직전에 포트폴리오 tool 사용 → agent로 위임
         if intent in ("ranking", "chart_price", "unknown") and _AMBIGUOUS_RE.search(req.message):
@@ -293,7 +301,13 @@ async def chat_endpoint(
                 pass  # intent 유지 → dispatcher 안내문구
 
         # unknown인데 세션 내 tool call 없으면 → 전체 기능 안내
-        if intent == "unknown":
+        # 단, 포트폴리오/비교 등 명확한 키워드가 있으면 agent로 위임
+        _has_clear_intent = (
+            _PORTFOLIO_KW_RE.search(req.message)
+            or _PORTFOLIO_COMPARISON_RE.search(req.message)
+            or _COMPARISON_RE.search(req.message)
+        )
+        if intent == "unknown" and not _has_clear_intent:
             try:
                 from app.db.mongo import get_chat_history
                 from app.templates.guide import _GUIDE_MESSAGE

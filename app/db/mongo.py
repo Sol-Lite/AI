@@ -80,22 +80,3 @@ def get_chat_history(account_id: str, limit: int = 20, since: datetime | None = 
         for msg in turn.get("messages", []):
             flattened.append(msg)
     return flattened
-
-
-# ── 도구 호출 로그 ─────────────────────────────────────────────────────────────
-
-def get_tool_log_collection():
-    db = get_database()
-    return db["tool_logs"]
-
-
-def save_tool_log(account_id: str, tool_name: str, args: dict, result: str) -> None:
-    """agent가 호출한 도구와 결과를 저장합니다. 환각 여부 디버깅에 활용합니다."""
-    col = get_tool_log_collection()
-    col.insert_one({
-        "account_id": str(account_id),
-        "tool_name":  tool_name,
-        "args":       args,
-        "result":     result,
-        "timestamp":  datetime.utcnow(),
-    })
