@@ -141,7 +141,7 @@ def format_stock_news(data: dict) -> str:
     sections = [f"**📰 {stock_name} 종목 뉴스**", _SEP]
 
     if not news:
-        sections.append("관련 뉴스가 없습니다.")
+        sections.append(f"{stock_name}의 뉴스는 아직 수집되지 않았어요.")
         sections.append(_SEP)
         return "\n\n".join(sections)
 

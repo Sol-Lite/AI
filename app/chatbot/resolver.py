@@ -524,6 +524,27 @@ def resolve_from_csv(message: str) -> tuple[str | None, str | None]:
         if name_clean in msg_lower:
             return code, name_clean
 
+    # 4. Fallback: 동사/조사에 붙은 alias 처리 (예: "네이버사고싶어", "현차팔아줘")
+    #    _apply_synonyms의 word-boundary 룩어헤드가 막은 경우를 커버
+    #    (message는 이미 normalize + _apply_synonyms 적용된 상태)
+    for alias, canonical in sorted(_SYNONYMS.items(), key=lambda x: len(x[0]), reverse=True):
+        if alias not in message:
+            continue
+        # 더 긴 alias가 이미 message에 있으면 스킵 (예: "삼전기" 있으면 "삼전" 스킵)
+        if any(len(a) > len(alias) and a.startswith(alias) and a in message for a in _SYNONYMS):
+            continue
+        expanded = message.replace(alias, canonical, 1)
+        exp_lower = expanded.lower()
+        for name, code in kospi_list:
+            if name in expanded:
+                return code, name
+        for name, code in nasdaq_ko:
+            if name in expanded:
+                return code, name
+        for name_clean, code in nasdaq_en:
+            if name_clean in exp_lower:
+                return code, name_clean
+
     return None, None
 
 

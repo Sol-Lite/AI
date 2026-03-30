@@ -201,7 +201,9 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     if isinstance(data, dict) and data.get("error"):
         return {"reply": data["error"]}
     tool_ctx = _get_tool_context("get_stock_news", {"stock_code": stock_code}, data)
-    return {"reply": format_stock_news(data), "_tool_context": tool_ctx, "_is_template": True}
+    reply = format_stock_news(data)
+    has_news = bool(data.get("news"))
+    return {"reply": reply, "_tool_context": tool_ctx, "_is_template": has_news}
 
 
 _HOLDINGS_NEWS_RE = re.compile(
@@ -420,8 +422,27 @@ def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
 
     # 그 외 모든 자연어 → general agent
     try:
+        import json as _json
         from app.agent.llm_agent import ask_general
         reply, tool_ctx = ask_general(user_context, message)
+
+        # 에이전트가 get_stock_news를 호출한 경우 → 뉴스 없음/오류 모두 템플릿 형식으로 통일
+        for _msg in tool_ctx:
+            if _msg.get("role") == "tool" and _msg.get("name") == "get_stock_news":
+                try:
+                    _data = _json.loads(_msg["content"]) if isinstance(_msg["content"], str) else _msg["content"]
+                    if not _data.get("news"):
+                        # 뉴스 없음(수집 안됨) 또는 종목 미인식 → 템플릿 형식으로 통일
+                        _template_data = {
+                            "stock_code": _data.get("stock_code") or message,
+                            "stock_name": _data.get("stock_name") or message,
+                            "news": [],
+                        }
+                        reply = format_stock_news(_template_data)
+                except Exception:
+                    pass
+                break
+
         return {"reply": reply, "_tool_context": tool_ctx}
     except Exception:
         return {"reply": _FALLBACK_MESSAGE}

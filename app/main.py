@@ -148,8 +148,13 @@ def _try_stock_shortcut(message: str, account_id: str, session_since: float | No
         data = get_market_summary(type="stock_news", stock_code=code)
         if isinstance(data, dict) and data.get("error"):
             return None
+        # stock_name이 없으면 이미 알고 있는 한글 종목명 주입
+        if not data.get("stock_name"):
+            data = {**data, "stock_name": name}
         tool_ctx = _get_tool_context("get_stock_news", {"stock_code": code}, data)
-        return {"reply": format_stock_news(data), "_tool_context": tool_ctx, "_is_template": True}
+        reply = format_stock_news(data)
+        has_news = bool(data.get("news"))
+        return {"reply": reply, "_tool_context": tool_ctx, "_is_template": has_news}
 
     return None
 
@@ -230,11 +235,14 @@ async def chat_endpoint(
     if _JAMO_RE.search(req.message):
         return ChatResponse(reply="입력이 완성되지 않은 것 같아요. 다시 입력해 주세요.\n예) 삼성전자 현재가")
 
-    # 의미 없는 단답 (2자 이하이고 알파벳·숫자·한글 음절만) → 안내문구
+    # 짧은 단답 → 종목명이면 통과, 아닌 경우만 안내문구
     _stripped = req.message.strip()
     if len(_stripped) <= 2 and re.fullmatch(r"[가-힣a-zA-Z0-9]{1,2}", _stripped):
-        from app.templates.guide import _GUIDE_MESSAGE
-        return ChatResponse(reply=_GUIDE_MESSAGE)
+        from app.chatbot.resolver import resolve_from_csv, _normalize_message as _nm
+        _code, _ = resolve_from_csv(_nm(_stripped))
+        if not _code:
+            from app.templates.guide import _GUIDE_MESSAGE
+            return ChatResponse(reply=_GUIDE_MESSAGE)
 
     # 종목명만 있는 follow-up + 직전 tool 재사용 → LLM 없이 직접 처리
     shortcut = _try_stock_shortcut(req.message, account_id, session_since)
@@ -281,7 +289,8 @@ async def chat_endpoint(
             except Exception:
                 pass
 
-        result = dispatch(intent, params, user_context, original_message=req.message)
+        if result is None:
+            result = dispatch(intent, params, user_context, original_message=req.message)
 
     # user + tool_context(있으면) + assistant 를 한 턴으로 저장
     try:
