@@ -465,6 +465,7 @@ uvicorn app.main:app --reload
 ### 호출 예시
 
 ```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000  
 # 지수 조회
 curl -X POST http://localhost:8000/chat \
   -H "Authorization: Bearer <JWT>" \

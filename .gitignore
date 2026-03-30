@@ -5,3 +5,4 @@
 .env.production
 
 __pycache__/
+.idea/
