@@ -324,10 +324,14 @@ _SYNONYMS: dict[str, str] = {
 
     # ── 기타 ─────────────────────────────────────────────────────────────────────
     "고려아연":      "고려아연",
-    "두에빌":        "두산에너빌리티",
-    "두산에너빌":    "두산에너빌리티",
-    "두산중공업":    "두산에너빌리티",
-    "에너빌":        "두산에너빌리티",
+    "두에빌":            "두산에너빌리티",
+    "두산에너빌":        "두산에너빌리티",
+    "두산 에너빌리티":  "두산에너빌리티",   # 공백 포함 입력
+    "두산애너빌리티":   "두산에너빌리티",   # 애/에 오타
+    "두산 애너빌리티":  "두산에너빌리티",   # 공백 + 오타
+    "두산중공업":        "두산에너빌리티",
+    "에너빌":            "두산에너빌리티",
+    "애너빌":            "두산에너빌리티",   # 애/에 오타
     "두산밥캣":      "두산밥캣",
     "밥캣":          "두산밥캣",
     "두산":          "두산",
@@ -339,6 +343,7 @@ _SYNONYMS: dict[str, str] = {
     "한샘":          "한샘",
     "한온":          "한온시스템",
     "풍산":          "풍산",
+    "신라":      "호텔신라",
     "호텔신라":      "호텔신라",
     "신라호텔":      "호텔신라",
     "파라다이스":    "파라다이스",
@@ -349,6 +354,7 @@ _SYNONYMS: dict[str, str] = {
     "엘앤에프":      "엘앤에프",
     "에코프로머티":  "에코프로머티",
     "효성티앤씨":    "효성티앤씨",
+    "HS효성":        "HS효성첨단소재",
     "HS효성":        "HS효성첨단소재",
     "에이치에스효성": "HS효성첨단소재",
     "씨에스윈드":    "씨에스윈드",
@@ -528,44 +534,35 @@ def resolve_from_csv(message: str) -> tuple[str | None, str | None]:
     message = _normalize_message(message)
     message = _apply_synonyms(message)
 
+    # Pre-expand: _apply_synonyms가 word-boundary 체크로 놓친 alias를 먼저 확장
+    # 이름 매칭 전에 실행해야 짧은 이름(두산)이 긴 이름(두산에너빌리티)보다 먼저 잡히는 것을 방지
+    for alias, canonical in sorted(_SYNONYMS.items(), key=lambda x: len(x[0]), reverse=True):
+        if alias not in message or canonical in message:
+            continue
+        # 더 긴 alias가 이미 message에 있으면 스킵
+        if any(len(a) > len(alias) and a.startswith(alias) and a in message for a in _SYNONYMS):
+            continue
+        message = message.replace(alias, canonical, 1)
+        break  # 한 번에 하나씩 확장 (단일 종목 추출이므로 충분)
+
     kospi_list, nasdaq_ko, nasdaq_en = _load_stock_map()
     msg_lower = message.lower()
+    msg_no_space = re.sub(r'\s+', '', message)
 
     # 1. KOSPI 한글 종목명
     for name, code in kospi_list:
-        if name in message:
+        if name in message or name in msg_no_space:
             return code, name
 
     # 2. NASDAQ 한글 종목명
     for name, code in nasdaq_ko:
-        if name in message:
+        if name in message or name in msg_no_space:
             return code, name
 
     # 3. NASDAQ 영문 종목명 (소문자 정규화 후 비교)
     for name_clean, code in nasdaq_en:
         if name_clean in msg_lower:
             return code, name_clean
-
-    # 4. Fallback: 동사/조사에 붙은 alias 처리 (예: "네이버사고싶어", "현차팔아줘")
-    #    _apply_synonyms의 word-boundary 룩어헤드가 막은 경우를 커버
-    #    (message는 이미 normalize + _apply_synonyms 적용된 상태)
-    for alias, canonical in sorted(_SYNONYMS.items(), key=lambda x: len(x[0]), reverse=True):
-        if alias not in message:
-            continue
-        # 더 긴 alias가 이미 message에 있으면 스킵 (예: "삼전기" 있으면 "삼전" 스킵)
-        if any(len(a) > len(alias) and a.startswith(alias) and a in message for a in _SYNONYMS):
-            continue
-        expanded = message.replace(alias, canonical, 1)
-        exp_lower = expanded.lower()
-        for name, code in kospi_list:
-            if name in expanded:
-                return code, name
-        for name, code in nasdaq_ko:
-            if name in expanded:
-                return code, name
-        for name_clean, code in nasdaq_en:
-            if name_clean in exp_lower:
-                return code, name_clean
 
     return None, None
 
@@ -593,6 +590,7 @@ def resolve_all_from_csv(message: str) -> list[tuple[str, str]]:
 
     kospi_list, nasdaq_ko, nasdaq_en = _load_stock_map()
     exp_lower = expanded.lower()
+    exp_no_space = re.sub(r'\s+', '', expanded)  # "두산 에너빌리티" → "두산에너빌리티"
     found: list[tuple[str, str]] = []
     seen_codes: set[str] = set()
 
@@ -603,7 +601,7 @@ def resolve_all_from_csv(message: str) -> list[tuple[str, str]]:
         if code in seen_codes:
             continue
         pat = re.compile(re.escape(name) + r'(?![가-힣a-zA-Z0-9])')
-        if pat.search(expanded):
+        if pat.search(expanded) or pat.search(exp_no_space):
             found.append((code, name))
             seen_codes.add(code)
 

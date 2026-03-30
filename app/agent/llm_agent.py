@@ -355,6 +355,13 @@ def _build_system() -> str:
 - "IT 비중이 너무 높은 거 아니야?" → 이전 포트폴리오 구성 데이터 참조
 이전 데이터로 답할 수 있으면 도구를 다시 호출하지 말고 바로 답하세요.
 
+[두 종목 비교 - 반드시 준수]
+질문에 "이전 조회 결과: A +X%, B -Y%." 형식의 데이터가 포함되어 있으면:
+- get_portfolio_info를 절대 호출하지 마세요.
+- get_stock_price를 다시 호출하지 마세요.
+- 제공된 change_rate 값을 직접 비교해서 바로 답하세요.
+- 예) "이전 조회 결과: 삼성전자 +0.54%, 현대차 -0.49%. ..." → "삼성전자가 +0.54%로 더 많이 올랐어요."
+
 [후속 질문 응답 규칙 - 반드시 준수]
 후속 질문("제일 많이 오른 게?", "그 중에 뭐가 좋아?", "비중은?")에는 반드시 한두 문장으로 짧게 답하세요.
 이전 대화에 포트폴리오 분석 결과가 있어도 전체를 다시 출력하지 마세요.
@@ -540,6 +547,53 @@ _PRICE_NEWS_KW = {
     "몇 주", "수량", "몇 개",
 }
 
+# 이전에 조회한 종목끼리 비교 — 이전 get_stock_price 결과를 직접 참조해서 답해야 하는 경우
+_PRICE_COMPARISON_RE = re.compile(
+    r"(두|세|네|여러|그|이)\s*(종목|주식|회사)\s*(중|에서|가운데)"
+    r"|(둘|셋|넷)\s*중"
+    r"|어느\s*(쪽|게|것|종목|주식)\s*(이|가)?\s*(더|많이)"
+    r"|(두|세|여러|이)\s*(종목|주식)\s*(비교|차이)"
+    r"|(가장|제일|젤)\s*(많이)?\s*(오른|내린|상승|하락)"
+    r"|더\s*(많이|크게)?\s*(오른|내린|올랐|내렸)"
+)
+
+
+def _extract_price_comparison_data(history: list) -> str | None:
+    """
+    history에서 get_stock_price tool 결과를 수집해 비교용 요약 문자열을 반환합니다.
+    2개 이상의 종목 데이터가 있을 때만 반환합니다.
+
+    예) "이전 조회 결과: 삼성전자 +0.54%, 현대차 -0.49%"
+    """
+    price_items: list[str] = []
+    seen_names: set[str] = set()
+
+    for msg in history:
+        if msg.get("role") != "tool" or msg.get("name") != "get_stock_price":
+            continue
+        try:
+            data = json.loads(msg["content"]) if isinstance(msg["content"], str) else msg["content"]
+        except Exception:
+            continue
+
+        name = data.get("stock_name", "")
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+
+        rate = data.get("change_rate", "")
+        if isinstance(rate, (int, float)):
+            sign = "+" if rate >= 0 else ""
+            rate_str = f"{sign}{rate:.2f}%"
+        else:
+            rate_str = str(rate)
+
+        price_items.append(f"{name} {rate_str}")
+
+    if len(price_items) >= 2:
+        return "이전 조회 결과: " + ", ".join(price_items)
+    return None
+
 
 def _has_stock_in_msg(msg: str) -> bool:
     """메시지에 종목명/코드가 포함되어 있는지 확인합니다."""
@@ -579,7 +633,16 @@ def _enrich_with_context(user_message: str, history: list) -> str:
                 return f"{stock} 몇 주 거래했어?"
             return f"{stock} {msg}"
 
-    # ── 3. 짧은 종목명 + 이전 도구 타입 주입 ────────────────────────────────
+    # ── 3. 두 종목 비교 질문 → 이전 가격 조회 결과를 메시지에 직접 주입 ────────
+    if _PRICE_COMPARISON_RE.search(msg):
+        price_summary = _extract_price_comparison_data(history)
+        if price_summary:
+            return (
+                f"{msg}\n"
+                f"({price_summary}. 새 도구를 호출하지 말고 이 데이터로 바로 비교해서 답하세요.)"
+            )
+
+    # ── 4. 짧은 종목명 + 이전 도구 타입 주입 ────────────────────────────────
     if len(msg) > 10 or any(kw in msg for kw in _INTENT_KEYWORDS):
         return user_message
 

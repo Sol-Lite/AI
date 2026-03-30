@@ -167,15 +167,26 @@ _AMBIGUOUS_RE = re.compile(
     r"(수익률|손익|비중|비율)\s*(이|가|은|는)?\s*(얼마|어때|어떻게|높|낮)"
 )
 
-# "두 종목 중 많이 오른 종목은?" 처럼 대화 맥락의 특정 종목끼리 비교하는 패턴
+# 이전에 조회한 종목끼리 비교하는 패턴 (종목 수 무관)
 _COMPARISON_RE = re.compile(
-    r"(두|이|그)\s*(종목|주식|회사)\s*(중|에서|가운데)"
+    r"(두|세|네|여러|그|이)\s*(종목|주식|회사)\s*(중|에서|가운데)"
     r"|"
-    r"둘\s*중"
+    r"(둘|셋|넷)\s*중"
     r"|"
     r"어느\s*(쪽|게|것|종목|주식)\s*(이|가)?\s*(더|많이)"
     r"|"
-    r"(두|이)\s*(종목|주식)\s*(비교|차이)"
+    r"(두|세|여러|이)\s*(종목|주식)\s*(비교|차이)"
+    r"|"
+    r"(가장|제일|젤)\s*(많이)?\s*(오른|내린|상승|하락)"
+    r"|"
+    r"더\s*(많이|크게)?\s*(오른|내린|올랐|내렸)"
+)
+
+# "보유 종목 중 가장 많이 오른 건?" 처럼 포트폴리오 대상 비교 — 항상 agent로
+_PORTFOLIO_COMPARISON_RE = re.compile(
+    r"보유\s*(종목|주식|중|한).*?(가장|제일|젤|많이|오른|내린|올랐|내렸|수익|손해|높|낮)"
+    r"|"
+    r"(가장|제일|젤|더)\s*(많이)?\s*(오른|내린|올랐|내렸|수익|손실).*보유"
 )
 
 # 직전 대화에서 포트폴리오/거래 관련 tool을 사용했는지 확인
@@ -259,7 +270,11 @@ async def chat_endpoint(
             if _last_tool_was_portfolio(account_id, session_since):
                 intent = "unknown"
 
-        # "두 종목 중 많이 오른 종목은?" 같은 비교 질문 + 직전에 가격 조회 2회 이상 → agent로 위임
+        # "보유 종목 중 가장 많이 오른 건?" → 포트폴리오 대상 비교이므로 항상 agent로
+        if intent in ("ranking", "chart_price", "unknown") and _PORTFOLIO_COMPARISON_RE.search(req.message):
+            intent = "unknown"
+
+        # 종목 비교 질문 + 직전에 가격 조회 2회 이상 → agent로 위임
         if intent in ("ranking", "chart_price", "unknown") and _COMPARISON_RE.search(req.message):
             if _has_recent_price_context(account_id, session_since):
                 intent = "unknown"
