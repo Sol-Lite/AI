@@ -214,3 +214,69 @@ Ctrl+C
 ```
 
 크롤링 사이클 도중 `Ctrl+C`를 눌러도 **수초 내로** 서버가 종료된다.
+
+---
+
+## 트러블슈팅: Ctrl+C 이후에도 크롤링 로그가 계속 출력됨
+
+### 증상
+
+`[crawler] 중지`와 `Application shutdown complete`가 출력된 이후에도 크롤링 로그가 계속 찍혔다.
+
+```
+[crawler] 중지
+INFO:     Application shutdown complete.
+INFO:     Finished server process [39912]
+  [047810] 한국항공우주 — 모두 중복   ← 서버 종료 후에도 계속 출력
+  [003670] 포스코퓨처엠 — 모두 중복
+```
+
+### 원인
+
+`ThreadPoolExecutor`는 내부적으로 **non-daemon 스레드**를 사용한다.
+Python 인터프리터 종료 시 atexit 핸들러(`_python_exit`)가 실행되어
+남아있는 모든 executor 스레드를 `join()`하며 기다린다.
+
+```
+Ctrl+C → Application shutdown complete → Python 인터프리터 종료 시도
+  → atexit: concurrent.futures._python_exit() 실행
+  → executor의 non-daemon 스레드 전부 join (HTTP 요청 + 모델 추론 완료까지 대기)
+  → 프로세스가 실제로 종료되지 않음
+```
+
+`try/finally`로 `shutdown(wait=False, cancel_futures=True)`를 호출해도,
+이미 실행 중인 스레드는 취소되지 않고 atexit에 의해 다시 join된다.
+
+### 수정 (`scheduled_crawler.py`)
+
+`ThreadPoolExecutor`를 제거하고 `threading.Thread(daemon=True)` + `Semaphore`로 교체했다.
+daemon 스레드는 atexit 대상에 포함되지 않으므로 프로세스 종료 시 즉시 죽는다.
+
+```python
+# 기존 (문제 있음) — ThreadPoolExecutor는 non-daemon 스레드 사용
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+futures = {executor.submit(_crawl_and_save, stock): stock for stock in stocks}
+...
+
+# 수정 후 — daemon=True 스레드 + Semaphore로 동시 실행 수 제한
+import threading
+
+lock = threading.Lock()
+semaphore = threading.Semaphore(MAX_WORKERS)
+
+def worker(stock):
+    with semaphore:           # 동시 실행 수를 MAX_WORKERS로 제한
+        n = _crawl_and_save(stock)
+        with lock:
+            total_saved += n  # 공유 변수 안전하게 업데이트
+
+threads = [threading.Thread(target=worker, args=(stock,), daemon=True) for stock in stocks]
+for t in threads: t.start()
+for t in threads: t.join()
+```
+
+- `daemon=True`: 프로세스 종료 시 스레드 즉시 강제 종료, atexit 대상 제외
+- `Semaphore(MAX_WORKERS)`: `ThreadPoolExecutor`의 worker 수 제한과 동일한 효과
+- `Lock`: 여러 스레드가 `total_saved`를 동시에 수정하는 것을 방지

@@ -12,7 +12,7 @@ import json
 import os
 import re
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 import certifi
 import requests
@@ -437,16 +437,20 @@ def run_job(stocks):
     print(f'\n[{now}] 크롤링 사이클 시작 (총 {len(stocks)}종목, 목표 {TARGET_PER_STOCK}건/종목, 동시 {MAX_WORKERS}스레드)')
     total_saved = 0
 
-    executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
-    futures = {executor.submit(_crawl_and_save, stock): stock for stock in stocks}
-    try:
-        for future in as_completed(futures):
-            try:
-                total_saved += future.result()
-            except Exception as e:
-                stock = futures[future]
-                print(f'  [{stock["ticker"]}] 에러: {e}')
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+    lock = threading.Lock()
+    semaphore = threading.Semaphore(MAX_WORKERS)
+
+    def worker(stock):
+        nonlocal total_saved
+        with semaphore:
+            n = _crawl_and_save(stock)
+            with lock:
+                total_saved += n
+
+    threads = [threading.Thread(target=worker, args=(stock,), daemon=True) for stock in stocks]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
     print(f'사이클 완료. 총 신규 기사: {total_saved}건')
