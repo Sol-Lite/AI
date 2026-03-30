@@ -162,8 +162,20 @@ _AMBIGUOUS_RE = re.compile(
     r"(수익률|손익|비중|비율)\s*(이|가|은|는)?\s*(얼마|어때|어떻게|높|낮)"
 )
 
+# "두 종목 중 많이 오른 종목은?" 처럼 대화 맥락의 특정 종목끼리 비교하는 패턴
+_COMPARISON_RE = re.compile(
+    r"(두|이|그)\s*(종목|주식|회사)\s*(중|에서|가운데)"
+    r"|"
+    r"둘\s*중"
+    r"|"
+    r"어느\s*(쪽|게|것|종목|주식)\s*(이|가)?\s*(더|많이)"
+    r"|"
+    r"(두|이)\s*(종목|주식)\s*(비교|차이)"
+)
+
 # 직전 대화에서 포트폴리오/거래 관련 tool을 사용했는지 확인
 _PORTFOLIO_TOOLS = {"get_portfolio_info", "get_trade_history"}
+_PRICE_TOOLS = {"get_stock_price", "get_stock_news"}
 
 
 def _last_tool_was_portfolio(account_id: str, session_since: float | None = None) -> bool:
@@ -175,6 +187,22 @@ def _last_tool_was_portfolio(account_id: str, session_since: float | None = None
             if msg.get("role") == "assistant" and msg.get("tool_calls"):
                 tool_name = msg["tool_calls"][0].get("function", {}).get("name", "")
                 return tool_name in _PORTFOLIO_TOOLS
+    except Exception:
+        pass
+    return False
+
+
+def _has_recent_price_context(account_id: str, session_since: float | None = None) -> bool:
+    """최근 대화에서 가격/뉴스 tool을 2회 이상 사용했으면 True (특정 종목 비교 맥락)"""
+    try:
+        from app.db.mongo import get_chat_history
+        history = get_chat_history(account_id, limit=8, since=session_since)
+        count = sum(
+            1 for msg in history
+            if msg.get("role") == "assistant" and msg.get("tool_calls")
+            and msg["tool_calls"][0].get("function", {}).get("name") in _PRICE_TOOLS
+        )
+        return count >= 2
     except Exception:
         pass
     return False
@@ -221,6 +249,11 @@ async def chat_endpoint(
         # 모호한 질문 + 직전에 포트폴리오 tool 사용 → agent로 위임
         if intent in ("ranking", "chart_price", "unknown") and _AMBIGUOUS_RE.search(req.message):
             if _last_tool_was_portfolio(account_id, session_since):
+                intent = "unknown"
+
+        # "두 종목 중 많이 오른 종목은?" 같은 비교 질문 + 직전에 가격 조회 2회 이상 → agent로 위임
+        if intent in ("ranking", "chart_price", "unknown") and _COMPARISON_RE.search(req.message):
+            if _has_recent_price_context(account_id, session_since):
                 intent = "unknown"
 
         # 시세/뉴스 intent인데 종목 미지정 → 이번 세션 맥락에서 종목 추출 시도

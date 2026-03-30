@@ -74,6 +74,8 @@ def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
 
 
 def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
+    if params.get("multi_stock"):
+        return {"reply": "현재가는 종목 하나씩 조회할 수 있어요. 어떤 종목의 시세를 볼까요?\n예) 삼성전자 현재가"}
     stock_code = params.get("stock_code")
     account_id = user_context.get("account_id", "")
     if not stock_code:
@@ -96,6 +98,8 @@ def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
 
 
 def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
+    if params.get("multi_stock"):
+        return {"reply": "주문은 종목 하나씩 진행할 수 있어요. 어떤 종목을 거래하시겠어요?\n예) 삼성전자 매수"}
     stock_code = params.get("stock_code")
     if not stock_code:
         return {"reply": "어떤 종목을 거래하시겠어요? 종목명을 알려주세요.\n예) 신한지주 거래/매수/매도"}
@@ -109,6 +113,8 @@ def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
 
 
 def _handle_sell_intent(params: dict, user_context: dict, message: str) -> dict:
+    if params.get("multi_stock"):
+        return {"reply": "주문은 종목 하나씩 진행할 수 있어요. 어떤 종목을 매도하시겠어요?\n예) 삼성전자 매도"}
     stock_code = params.get("stock_code")
     if not stock_code:
         return {"reply": "어떤 종목을 매도하시겠어요? 종목명을 알려주세요.\n예) 신한지주 매도"}
@@ -199,9 +205,13 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
 
 
 _HOLDINGS_NEWS_RE = re.compile(
-    r"(보유|가진)\s*(종목|주식).*(뉴스|기사|소식)"
+    r"(보유|가진)\s*한?\s*(종목|주식).*(뉴스|기사|소식)"
     r"|"
-    r"(뉴스|기사|소식).*(보유|가진)\s*(종목|주식)"
+    r"(뉴스|기사|소식).*(보유|가진)\s*한?\s*(종목|주식)"
+    r"|"
+    r"내\s*가?\s*보유.*(뉴스|기사|소식)"
+    r"|"
+    r"(뉴스|기사|소식).*내\s*가?\s*보유"
 )
 
 _PORTFOLIO_SIMPLE_RE = re.compile(

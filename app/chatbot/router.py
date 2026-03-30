@@ -281,7 +281,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"투자\s*분석",
         r"내\s*주식\s*분석",
         r"내\s*수익률",
-        r"보유\s*(주식|종목)",
+        r"보유\s*한?\s*(주식|종목)",
+        r"내\s*가?\s*보유",
         r"내\s*자산",
         r"섹터\s*비중",
         r"업종\s*비중",
@@ -430,6 +431,9 @@ def _extract_balance_type(message: str) -> str:
 
 def _extract_params(intent: str, message: str) -> dict:
     if intent == "chart_price":
+        all_stocks = resolve_all_from_csv(_normalize_message(message))
+        if len(all_stocks) > 1:
+            return {"multi_stock": True}
         return {"stock_code": _extract_stock(message)}
 
     if intent == "stock_news":
@@ -439,6 +443,9 @@ def _extract_params(intent: str, message: str) -> dict:
         return {"stock_code": _extract_stock(message)}
 
     if intent in ("buy_intent", "sell_intent"):
+        all_stocks = resolve_all_from_csv(_normalize_message(message))
+        if len(all_stocks) > 1:
+            return {"multi_stock": True}
         normalized = _normalize_message(message)
         code, name = resolve_from_csv(normalized)
         if not code:
