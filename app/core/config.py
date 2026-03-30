@@ -2,15 +2,7 @@ import os
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
-load_dotenv()
-
-#JWT
- 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
-if not JWT_SECRET_KEY:
-    raise RuntimeError(".env에 JWT_SECRET_KEY가 설정되지 않았습니다.")
- 
-JWT_ALGORITHM = "HS384"  # HS256 → HS384
+load_dotenv(override=True)
 
 # LLM
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
