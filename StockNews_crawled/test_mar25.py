@@ -22,7 +22,7 @@ from config import (
     HEADERS, NEWS_API_URL, ARTICLE_URL,
     MEDIA_KEYWORDS,
 )
-from summarizer import summarize_articles
+from Stocknews_final.summarizer import summarize_articles
 
 TARGET_PER_STOCK = 3
 
