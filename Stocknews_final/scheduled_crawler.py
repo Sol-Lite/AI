@@ -129,6 +129,7 @@ def clean_body(text):
     text = re.sub(r'\s*사진\s*[|=]\s*[^\s][^.。\n]{0,30}', '', text)
     # ▲ 프로모션 문구
     text = re.sub(r'▲\s*.{0,200}', '', text)
+    text = re.sub(r'▶\s*기사\s*바로가기\s*:?\s*', '', text)
     # 공백 정리
     return re.sub(r'\s+', ' ', text).strip()
 
@@ -144,9 +145,12 @@ def fetch_article_body(office_id, article_id):
         og_image = soup.select_one('meta[property="og:image"]')
         thumbnail_url = og_image['content'] if og_image else ''
 
+        og_title_tag = soup.select_one('meta[property="og:title"]')
+        og_title = og_title_tag['content'].strip() if og_title_tag else ''
+
         content = soup.select_one('div#dic_area') or soup.select_one('div.newsct_article')
         if not content:
-            return '', [], thumbnail_url
+            return '', [], thumbnail_url, og_title
 
         def _extract_lines(tag):
             for br in tag.select('br'):
@@ -172,15 +176,18 @@ def fetch_article_body(office_id, article_id):
             text = b_tag.get_text(strip=True)
             if text and len(text) > 5 and text not in subtitles:
                 subtitles.append(text)
-            b_tag.decompose()
+                b_tag.decompose()
+            else:
+                if b_tag.parent:
+                    b_tag.unwrap()
 
         for tag in content.select('span._PHOTO_VIEWER, em.img_desc'):
             tag.decompose()
 
-        return clean_body(content.get_text(strip=True)), subtitles, thumbnail_url
+        return clean_body(content.get_text(strip=True)), subtitles, thumbnail_url, og_title
     except Exception as e:
         print(f'    본문 파싱 실패 ({office_id}/{article_id}): {e}')
-    return '', [], ''
+    return '', [], '', ''
 
 
 # ── 뉴스 목록 수집 ────────────────────────────────────────────
@@ -326,7 +333,9 @@ def crawl_stock_news(stock, target=TARGET_PER_STOCK):
                 except (ValueError, TypeError):
                     continue
 
-        body, subtitles, thumbnail_url = fetch_article_body(office_id, article_id)
+        body, subtitles, thumbnail_url, og_title = fetch_article_body(office_id, article_id)
+        if og_title:
+            title = og_title
 
         # 본문 품질 필터: 50자 미만이면 유효 건수에 포함하지 않음
         if len(body) < 50:
