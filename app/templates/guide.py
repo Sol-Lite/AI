@@ -21,3 +21,9 @@ _FALLBACK_MESSAGE = (
     "아래와 같은 서비스를 이용하시길 원하시면 다음과 같이 채팅해 주세요.\n\n"
     + _SERVICE_LIST
 )
+
+_INVEST_ADVICE_MESSAGE = (
+    "매수·매도 추천은 제공하지 않아요.\n\n"
+    "종목 시세, 뉴스, 시황 요약은 조회할 수 있어요.\n\n"
+    + _SERVICE_LIST
+)

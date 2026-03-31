@@ -239,7 +239,7 @@ _EN_STOCK_MAP = {
 
 def _resolve_stock(stock_input: str) -> str:
     """줄임말/동의어/영문명을 종목코드로 변환합니다. 예) '하닉' → '000660', 'Samsung' → '005930'"""
-    from app.chatbot.resolver import resolve_from_csv
+    from app.stock_ref import resolve_from_csv
     # 영문 입력 → 한국어 변환
     ko = _EN_STOCK_MAP.get(stock_input.lower().strip())
     if ko:
@@ -579,7 +579,7 @@ def _run_agent(
                 if name == "get_portfolio_info" and args.get("info_type") in ("holdings", "risk"):
                     try:
                         _pf = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
-                        from app.chatbot.resolver import resolve_from_csv, _normalize_message as _nm
+                        from app.stock_ref import resolve_from_csv, _normalize_message as _nm
                         _code, _sname = resolve_from_csv(_nm(user_message))
                         if _code and _sname:
                             _all = (
@@ -668,7 +668,7 @@ def _extract_last_stock(history: list) -> str | None:
                 candidate = m.group(1).strip()
                 if len(candidate) >= 2 and candidate not in _SKIP_WORDS:
                     # 실제 종목명인지 검증 (예: "환전 정보", "주문 정보" 같은 안내문구 제외)
-                    from app.chatbot.resolver import resolve_from_csv
+                    from app.stock_ref import resolve_from_csv
                     _c, _ = resolve_from_csv(candidate)
                     if _c:
                         return candidate
@@ -746,7 +746,7 @@ def _extract_price_comparison_data(history: list) -> str | None:
 
 def _has_stock_in_msg(msg: str) -> bool:
     """메시지에 종목명/코드가 포함되어 있는지 확인합니다."""
-    from app.chatbot.resolver import resolve_from_csv, _normalize_message
+    from app.stock_ref import resolve_from_csv, _normalize_message
     code, _ = resolve_from_csv(_normalize_message(msg))
     if code:
         return True

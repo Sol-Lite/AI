@@ -18,7 +18,7 @@
     unknown         - 인식 불가
 """
 import re
-from app.chatbot.resolver import resolve_from_csv, resolve_all_from_csv, _normalize_message
+from app.stock_ref import resolve_from_csv, resolve_all_from_csv, _normalize_message
 
 # ── 의도별 키워드 패턴 ──────────────────────────────────────────────────────────
 _PATTERNS: dict[str, list[str]] = {

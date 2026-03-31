@@ -16,7 +16,7 @@ import re
 import requests
 from datetime import date as date_type
 from app.db.oracle import resolve_stock_code
-from app.chatbot.resolver import resolve_name_from_code
+from app.stock_ref import resolve_name_from_code
 from app.core.config import SPRING_BASE_URL, HTTP_TIMEOUT_SECONDS
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
