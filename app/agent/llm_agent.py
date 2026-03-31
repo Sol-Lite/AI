@@ -432,7 +432,7 @@ def _build_system() -> str:
 포트폴리오 info_type 선택:
 - 보유 종목, 종목 비중, 보유 여부 → holdings
 - 섹터/업종 비중 → sector
-- 기간별 수익률 → returns
+- 기간별 수익률, 수익률이 높은/낮은 종목, 가장 많이 오른/내린 보유 종목 → returns
 - 평가손익, 실현손익, MDD, 변동성, 최고/최저 수익 종목 → risk
 - 승률, 손익비, 거래 통계 → stats
 
@@ -777,6 +777,14 @@ def _enrich_with_context(user_message: str, history: list) -> str:
     for kw in _PORTFOLIO_FORCE_KW:
         if kw in msg:
             info_type = _PORTFOLIO_FORCE_INFO.get(kw, "risk")
+            # 현재가/시세도 함께 요청한 경우 → 두 번 호출 지시
+            needs_price = any(pk in msg for pk in ("현재가", "시세", "주가", "얼마"))
+            if needs_price:
+                return (
+                    f"{msg}\n"
+                    f"(먼저 get_portfolio_info(info_type={info_type})로 종목을 확인한 뒤, "
+                    f"해당 종목의 현재가를 get_stock_price로 조회하세요.)"
+                )
             return f"{msg}\n(get_portfolio_info(info_type={info_type})를 사용하세요. get_stock_price 사용 금지)"
 
     # ── 2. 가격/뉴스/거래 키워드 있는데 종목명 없음 → 직전 종목 주입 ─────────

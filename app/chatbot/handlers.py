@@ -250,7 +250,18 @@ def _handle_sell_intent(params: dict, user_context: dict, message: str) -> dict:
     }
 
 
+_UNSUPPORTED_CURRENCY_RE = re.compile(r"엔화|엔|유로|파운드|위안|달러\s*외|원화\s*외")
+_SUPPORTED_CURRENCY_RE  = re.compile(r"달러|원화|USD|KRW")
+
+
 def _handle_exchange_order(params: dict, user_context: dict, message: str) -> dict:
+    if _UNSUPPORTED_CURRENCY_RE.search(message) and not _SUPPORTED_CURRENCY_RE.search(message):
+        return {
+            "reply": (
+                "현재 **달러(USD) ↔ 원화(KRW)** 환전만 지원하고 있어요.\n"
+                "엔화, 유로, 파운드, 위안 등 다른 통화 환전은 아직 제공되지 않아요."
+            )
+        }
     return {
         "type":  "exchange",
         "reply": "환전 정보를 입력하세요:",

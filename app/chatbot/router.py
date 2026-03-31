@@ -88,6 +88,9 @@ _PATTERNS: dict[str, list[str]] = {
         r"환전\s*하려",
         r"달러로\s*바꿔",
         r"달러로\s*환전",
+        r"(달러|엔화|엔|유로|파운드|원화|외화|위안)\s*(로|으로)?\s*(바꾸고\s*싶|바꿔\s*줘|바꿔\s*주세요|바꿀게|바꿀래|바꾸고\s*싶어|바꾸려고|바꾸자)",
+        r"(달러|엔화|엔|유로|파운드|원화|외화|위안)\s*(로|으로)?\s*(교환|환전)",
+        r"(달러|엔화|엔|유로|파운드|원화|외화|위안)\s*(을|를)?\s*(사고\s*싶|살게|살래|사줘|사려고|사자)",
         r"원화로\s*바꿔",
         r"원화로\s*환전",
         r"달러\s*환전",
@@ -294,9 +297,9 @@ _PATTERNS: dict[str, list[str]] = {
 _PRIORITY = [
     "greeting",
     "trades",         # 시점+과거형 매수/매도 패턴을 buy_intent보다 먼저 잡음
+    "exchange_order", # 화폐 바꾸기 패턴이 buy_intent보다 먼저 잡혀야 함
     "buy_intent",
     "sell_intent",
-    "exchange_order",
     "balance",
     "portfolio",      # 크로스도메인 복합 패턴 우선 (보유종목+뉴스/시세 등)
     "stock_news",
