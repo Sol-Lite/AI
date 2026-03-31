@@ -21,6 +21,17 @@ from app.core.config import SPRING_BASE_URL, HTTP_TIMEOUT_SECONDS
 
 VALID_CHART_PERIODS = {"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 
+# 국내 period → 해외 Spring API period 매핑
+_US_PERIOD_MAP = {
+    "DAILY":   "DAY",
+    "WEEKLY":  "WEEK",
+    "MONTHLY": "MONTH",
+    "YEARLY":  "YEAR",
+}
+
+# 기본 거래소: 나스닥. NYSE 종목은 exchcd="81" 직접 전달 필요
+_DEFAULT_US_EXCHCD = "82"
+
 # stock_code가 필요한 type 목록
 _STOCK_CODE_TYPES = {"price", "daily", "period_chart"}
 
@@ -59,7 +70,7 @@ def get_market_data(type: str, **kwargs):
         kwargs = {**kwargs, "stock_code": stock_code}
 
     if type == "price":
-        return _fetch_price(kwargs.get("stock_code"), kwargs.get("market"))
+        return _fetch_price(kwargs.get("stock_code"), kwargs.get("market"), kwargs.get("exchcd"))
 
     elif type == "daily":
         return _fetch_daily(kwargs.get("stock_code"), kwargs.get("date"))
@@ -70,6 +81,7 @@ def get_market_data(type: str, **kwargs):
             kwargs.get("period"),
             kwargs.get("start_date"),
             kwargs.get("end_date"),
+            kwargs.get("exchcd"),
         )
     elif type == "ranking":
         return _fetch_ranking(kwargs.get("ranking_type"), kwargs.get("market"))
@@ -101,9 +113,9 @@ def _is_us_stock(stock_code: str) -> bool:
     return not re.match(r'^\d{6}$', stock_code)
 
 
-def _fetch_price(stock_code: str, market: str | None) -> dict:
+def _fetch_price(stock_code: str, market: str | None, exchcd: str | None = None) -> dict:
     if _is_us_stock(stock_code):
-        return _fetch_US_price(stock_code)
+        return _fetch_US_price(stock_code, exchcd)
 
     # 한국 주식 시세
     price_data = _call_spring_api(
@@ -136,30 +148,38 @@ def _fetch_price(stock_code: str, market: str | None) -> dict:
 
 
 # 미국 주식 시세
-def _fetch_US_price(stock_code: str) -> dict:
+def _fetch_US_price(stock_code: str, exchcd: str | None = None) -> dict:
     price_data = _call_spring_api(
         f"/api/market/foreign-stocks/{stock_code}/price",
-        {"exchcd": "82"},
+        {"exchcd": exchcd or _DEFAULT_US_EXCHCD},
     )
     if price_data.get("error"):
         return price_data
 
     return {
-        "stock_name": price_data.get("korname") or stock_code,
-        "stock_code": price_data.get("symbol", stock_code),
+        "stock_name":    price_data.get("korname") or stock_code,
+        "stock_code":    price_data.get("symbol", stock_code),
         "current_price": price_data.get("price", 0),
-        "change": price_data.get("diff", 0),
-        "change_rate": price_data.get("rate", 0.0),
-        "open": price_data.get("open", 0),
-        "high": price_data.get("high", 0),
-        "low": price_data.get("low", 0),
-        "volume": price_data.get("volume", 0),
-        "currency": price_data.get("currency", "USD"),
+        "change":        price_data.get("diff", 0),
+        "change_rate":   price_data.get("rate", 0.0),
+        "open":          price_data.get("open", 0),
+        "high":          price_data.get("high", 0),
+        "low":           price_data.get("low", 0),
+        "volume":        price_data.get("volume", 0),
+        "currency":      price_data.get("currency", "USD"),
+        "market_type":   "NASDAQ" if (exchcd or _DEFAULT_US_EXCHCD) == "82" else "NYSE",
+        "exchange_code": "NAS"    if (exchcd or _DEFAULT_US_EXCHCD) == "82" else "NYS",
     }
 
 
 # ── chart ─────────────────────────────────────────────────────────────────────
-def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date: str | None = None) -> dict:
+def _fetch_period_chart(
+    stock_code: str,
+    period: str,
+    start_date: str,
+    end_date: str | None = None,
+    exchcd: str | None = None,
+) -> dict:
     if not start_date:
         return {"error": "start_date is required"}
     if not end_date:
@@ -172,14 +192,43 @@ def _fetch_period_chart(stock_code: str, period: str, start_date: str, end_date:
             "message": f"period must be one of {sorted(VALID_CHART_PERIODS)}",
         }
 
+    if _is_us_stock(stock_code):
+        return _fetch_US_period_chart(stock_code, normalized_period, start_date, end_date, exchcd)
+
     return _call_spring_api(
         f"/api/market/stocks/{stock_code}/chart",
         {
             "period": normalized_period,
             "startDate": start_date,
-            "endDate": end_date
-        }
+            "endDate": end_date,
+        },
     )
+
+
+def _fetch_US_period_chart(
+    stock_code: str,
+    period: str,
+    start_date: str,
+    end_date: str,
+    exchcd: str | None = None,
+) -> dict:
+    us_period = _US_PERIOD_MAP.get(period, "DAY")
+    data = _call_spring_api(
+        f"/api/market/foreign-stocks/{stock_code}/chart-advanced",
+        {
+            "exchcd":    exchcd or _DEFAULT_US_EXCHCD,
+            "period":    us_period,
+            "startDate": start_date,
+            "endDate":   end_date,
+        },
+    )
+    if data.get("error"):
+        return data
+    return {
+        "stock_code":  data.get("symbol", stock_code),
+        "period":      period,
+        "data_points": data.get("dataPoints", []),
+    }
 
 
 def _fetch_daily(stock_code: str, date: str) -> dict:
