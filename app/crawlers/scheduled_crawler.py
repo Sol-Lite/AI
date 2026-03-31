@@ -432,8 +432,8 @@ def _crawl_and_save(stock) -> int:
 
 # ── 1회 사이클 ────────────────────────────────────────────────
 def run_job(stocks):
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    print(f'\n[{now}] 크롤링 사이클 시작 (총 {len(stocks)}종목, 목표 {TARGET_PER_STOCK}건/종목, 동시 {MAX_WORKERS}스레드)')
+    start_dt = datetime.now()
+    print(f'\n[{start_dt:%Y-%m-%d %H:%M:%S}] 크롤링 사이클 시작 (총 {len(stocks)}종목, 목표 {TARGET_PER_STOCK}건/종목, 동시 {MAX_WORKERS}스레드)')
     total_saved = 0
 
     lock = threading.Lock()
@@ -452,4 +452,6 @@ def run_job(stocks):
     for t in threads:
         t.join()
 
-    print(f'사이클 완료. 총 신규 기사: {total_saved}건')
+    end_dt  = datetime.now()
+    elapsed = int((end_dt - start_dt).total_seconds())
+    print(f'[{end_dt:%Y-%m-%d %H:%M:%S}] 사이클 완료. 총 신규 기사: {total_saved}건 (소요: {elapsed}초, 다음 실행: {SCHEDULE_INTERVAL//60}분 후)')

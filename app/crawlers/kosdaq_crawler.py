@@ -9,6 +9,7 @@ API: https://www.news2day.co.kr/rest/search?searchText=마감시황&searchType=a
 - MongoDB sollite.news 저장 (기존 데이터 전체 삭제 후 삽입)
 """
 
+import json
 import re
 import time
 import html as html_module
@@ -16,16 +17,16 @@ from json_repair import repair_json
 
 import certifi
 import requests
-import schedule
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
-from config import MONGO_URI, DB_NAME, COLLECTION_NAME, OLLAMA_URL, OLLAMA_MODEL
 
-# ── news2day REST API 설정 ────────────────────────────────────
-SEARCH_API_URL = "https://www.news2day.co.kr/rest/search"
+from app.core.config import MONGO_URI, OLLAMA_BASE_URL, OLLAMA_MODEL
+
+# ── 크롤링 설정 ───────────────────────────────────────────────
+SEARCH_API_URL   = "https://www.news2day.co.kr/rest/search"
 ARTICLE_BASE_URL = "https://www.news2day.co.kr"
-CDN_BASE = "https://cdn.news2day.co.kr/data2"
+OLLAMA_URL       = f"{OLLAMA_BASE_URL}/api/generate"
 
 HEADERS = {
     "User-Agent": (
@@ -38,59 +39,45 @@ HEADERS = {
     "Referer": "https://www.news2day.co.kr/search?searchText=%EB%A7%88%EA%B0%90%EC%8B%9C%ED%99%A9",
 }
 
-# KST = UTC+9
 KST = timezone(timedelta(hours=9))
 
-
 # ── MongoDB 연결 ──────────────────────────────────────────────
-client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
-db = client[DB_NAME]
-collection = db[COLLECTION_NAME]
+client     = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+collection = client["sollite"]["news"]
+
+
 # ═══════════════════════════════════════════════════════════════
 # 텍스트 전처리
 # ═══════════════════════════════════════════════════════════════
 def clean_text(text: str) -> str:
-    # HTML 엔티티 디코딩 (&amp; &nbsp; 등)
     text = html_module.unescape(text)
-    # URL 제거
     text = re.sub(r'https?://\S+', '', text)
-    # 이메일 제거
     text = re.sub(r'[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
-    # 기자 바이라인 제거 (예: [뉴스투데이=홍길동 기자])
     text = re.sub(r'\[[^\]]{1,50}기자\]\s*', '', text)
     text = re.sub(r'\([^\)]{1,50}기자\)\s*', '', text)
     text = re.sub(r'[가-힣]{2,6}\s*기자\s*[=:]\s*', '', text)
-    # 저작권 표기 제거
     text = re.sub(r'ⓒ[^\n.。]{0,60}', '', text)
     text = re.sub(r'©[^\n.。]{0,60}', '', text)
     text = re.sub(r'무단\s*전재[^\n.。]{0,60}', '', text)
-    # 장식용 특수문자 제거
     text = re.sub(r'[■◆★☆◇○□◎▶▷◀◁△▽▲▼●◉]+\s*', '', text)
-    # 연속 공백/줄바꿈 정리
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
 
 def parse_html_content(raw_html: str) -> str:
-    """API가 반환하는 HTML content 필드에서 본문 텍스트만 추출"""
     soup = BeautifulSoup(raw_html, "html.parser")
-
-    # <figure id="id_div_main"> 및 모든 figure/figcaption 제거
     for tag in soup.select("figure#id_div_main, figure.class_div_main, figure, figcaption"):
         tag.decompose()
-
-    # 광고·스크립트·스타일 제거
     for tag in soup.select("script, style, iframe, ins"):
         tag.decompose()
-
     raw = soup.get_text(" ", strip=True)
     return clean_text(raw)
+
 
 # ═══════════════════════════════════════════════════════════════
 # 요약 말투 후처리 (-다 → -습니다)
 # ═══════════════════════════════════════════════════════════════
 def _to_hamnida(text: str) -> str:
-    """문장 끝 '-다' 체를 '-습니다' 체로 변환"""
     pairs = [
         (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
         (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
@@ -101,7 +88,6 @@ def _to_hamnida(text: str) -> str:
         (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
         (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
         (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
-        # 마침표 없이 문자열 끝나는 경우
         (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
         (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
         (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
@@ -113,7 +99,6 @@ def _to_hamnida(text: str) -> str:
 
 
 def apply_hamnida(summary: dict) -> dict:
-    """summary dict의 텍스트 필드에 말투 후처리 적용"""
     if not summary:
         return summary
     if isinstance(summary.get("market_event"), list):
@@ -123,6 +108,7 @@ def apply_hamnida(summary: dict) -> dict:
     if isinstance(summary.get("market_sentiment"), str):
         summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
     return summary
+
 
 # ═══════════════════════════════════════════════════════════════
 # REST API로 오늘 기사 목록 수집
@@ -149,7 +135,7 @@ def fetch_today_articles() -> list:
             print(f"  API 요청 실패 (page={page}): {e}")
             break
 
-        items = data.get("list", [])
+        items       = data.get("list", [])
         total_pages = data.get("pages", {}).get("totalPages", 0)
         total_count = data.get("pages", {}).get("totalElements", 0)
 
@@ -160,24 +146,21 @@ def fetch_today_articles() -> list:
             break
 
         for item in items:
-            article_id = item.get("id", "")
-            title = item.get("title", "").strip()
-            raw_html = item.get("content", "")
-            link = item.get("link", "")
+            article_id       = item.get("id", "")
+            title            = item.get("title", "").strip()
+            raw_html         = item.get("content", "")
+            link             = item.get("link", "")
             release_date_str = item.get("releaseDate") or item.get("firstReleaseDate", "")
 
-            # 날짜 파싱 (UTC → KST 변환)
             published_at = datetime.now(KST).replace(tzinfo=None)
             if release_date_str:
                 try:
-                    # "2026-03-19T07:17:39.043+0000" 형식
-                    dt_utc = datetime.strptime(release_date_str[:19], "%Y-%m-%dT%H:%M:%S")
-                    dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+                    dt_utc       = datetime.strptime(release_date_str[:19], "%Y-%m-%dT%H:%M:%S")
+                    dt_utc       = dt_utc.replace(tzinfo=timezone.utc)
                     published_at = dt_utc.astimezone(KST).replace(tzinfo=None)
                 except ValueError:
                     pass
 
-            # 본문 파싱
             if not raw_html:
                 continue
             content = parse_html_content(raw_html)
@@ -185,12 +168,12 @@ def fetch_today_articles() -> list:
                 continue
 
             articles.append({
-                "news_id": article_id,
-                "title": title,
-                "content": content,
-                "source": "news2day",
+                "news_id":     article_id,
+                "title":       title,
+                "content":     content,
+                "source":      "news2day",
                 "stock_index": "KOSDAQ",
-                "source_url": ARTICLE_BASE_URL + link if link else "",
+                "source_url":  ARTICLE_BASE_URL + link if link else "",
                 "published_at": published_at,
             })
 
@@ -203,14 +186,14 @@ def fetch_today_articles() -> list:
 
 
 # ═══════════════════════════════════════════════════════════════
-# ollama llama3.1:8b 요약
+# ollama 요약
 # ═══════════════════════════════════════════════════════════════
 def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
     if len(content) < 50:
         return {}
-    content = content[:4000]
-
+    content  = content[:4000]
     date_str = (published_at or datetime.now()).strftime("%Y년 %m월 %d일")
+
     prompt = f"""아래 [기사 내용]을 읽고 분석하여 JSON을 출력하세요.
 주의사항:
 - [출력 예시]는 형식만 보여주는 가짜 데이터입니다. 예시의 수치, 종목, 업종, 문장을 절대 그대로 사용하지 마세요.
@@ -268,16 +251,15 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
         r = requests.post(
             OLLAMA_URL,
             json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "format": "json",
-                "stream": False,
+                "model":   OLLAMA_MODEL,
+                "prompt":  prompt,
+                "format":  "json",
+                "stream":  False,
                 "options": {"num_predict": 2048},
             },
             timeout=180,
         )
         r.raise_for_status()
-        import json
         raw = r.json().get("response", "{}")
         try:
             result = json.loads(raw)
@@ -295,7 +277,6 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 def run_job() -> None:
     print(f"\n[{datetime.now():%Y-%m-%d %H:%M:%S}] 크롤링 시작 — news2day 마감시황")
 
-    # 1. 오늘 기사 목록 수집 (API)
     articles = fetch_today_articles()
     print(f"  유효 기사: {len(articles)}건")
 
@@ -303,30 +284,18 @@ def run_job() -> None:
         print("  저장할 기사 없음 — 종료")
         return
 
-    # 2. ollama 요약
     docs = []
     for i, article in enumerate(articles, 1):
         print(f"  [{i}/{len(articles)}] 요약 중: {article['title'][:45]}")
         summary = summarize_with_ollama(article["content"], article.get("published_at"))
         docs.append({
             **article,
-            "summary": summary,
+            "summary":    summary,
             "fetched_at": datetime.now(),
         })
 
-    # 3. 기존 데이터 전체 삭제 후 삽입 (sollite.news 전체)
     del_result = collection.delete_many({})
     print(f"  기존 데이터 삭제: {del_result.deleted_count}건")
 
     result = collection.insert_many(docs)
     print(f"  MongoDB 저장 완료: {len(result.inserted_ids)}건")
-
-
-# ═══════════════════════════════════════════════════════════════
-# 메인 — 매일 16:30 스케줄
-# ═══════════════════════════════════════════════════════════════
-if __name__ == "__main__":
-    schedule.every().day.at("16:30").do(run_job)
-    while True:
-        schedule.run_pending()
-        time.sleep(30)

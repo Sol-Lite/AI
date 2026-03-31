@@ -22,7 +22,7 @@ def format_korea_summary(data: dict) -> str:
     stocks           = summary.get("stocks", {})
     one_line_summary = summary.get("one_line_summary", "")
 
-    sections = [f"**🇰🇷 한국 시황  {date}**", _SEP]
+    sections = [f"**🇰🇷 한국 시황**", _SEP]
 
     if one_line_summary:
         sections.append(f"**💬 {one_line_summary}**")
@@ -76,7 +76,7 @@ def format_us_summary(data: dict) -> str:
     market_sentiment = summary.get("market_sentiment", "")
     one_line_summary = summary.get("one_line_summary", "")
 
-    sections = [f"**🇺🇸 미국 시황  {date}**", _SEP]
+    sections = [f"**🇺🇸 미국 시황**", _SEP]
 
     if one_line_summary:
         sections.append(f"**💬 {one_line_summary}**")
