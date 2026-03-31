@@ -21,12 +21,13 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 
-from app.core.config import MONGO_URI, OLLAMA_BASE_URL, OLLAMA_MODEL
+import boto3
+from app.core.config import MONGO_URI, SAGEMAKER_ENDPOINT_NAME, AWS_REGION, LLM_TIMEOUT_SECONDS
 
 # ── 크롤링 설정 ───────────────────────────────────────────────
 SEARCH_API_URL   = "https://www.news2day.co.kr/rest/search"
 ARTICLE_BASE_URL = "https://www.news2day.co.kr"
-OLLAMA_URL       = f"{OLLAMA_BASE_URL}/api/generate"
+_sagemaker = boto3.client("sagemaker-runtime", region_name=AWS_REGION)
 
 HEADERS = {
     "User-Agent": (
@@ -186,7 +187,7 @@ def fetch_today_articles() -> list:
 
 
 # ═══════════════════════════════════════════════════════════════
-# ollama 요약
+# SageMaker 요약
 # ═══════════════════════════════════════════════════════════════
 def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
     if len(content) < 50:
@@ -248,26 +249,25 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
 
     try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model":   OLLAMA_MODEL,
-                "prompt":  prompt,
-                "format":  "json",
-                "stream":  False,
-                "options": {"num_predict": 2048},
-            },
-            timeout=180,
+        payload = {
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2048,
+            "temperature": 0.1,
+        }
+        resp = _sagemaker.invoke_endpoint(
+            EndpointName=SAGEMAKER_ENDPOINT_NAME,
+            ContentType="application/json",
+            Body=json.dumps(payload),
         )
-        r.raise_for_status()
-        raw = r.json().get("response", "{}")
+        data = json.loads(resp["Body"].read())
+        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             result = json.loads(repair_json(raw))
         return apply_hamnida(result)
     except Exception as e:
-        print(f"  ollama 요약 실패: {e}")
+        print(f"  sagemaker 요약 실패: {e}")
         return {}
 
 
