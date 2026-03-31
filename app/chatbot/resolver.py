@@ -47,7 +47,6 @@ _SYNONYMS: dict[str, str] = {
     "물산":          "삼성물산",
     "삼성생":        "삼성생명",
     "삼성화":        "삼성화재",
-    "삼전기":        "삼성전기",
     "삼성에스디아이": "삼성SDI",
     "삼성SDI":       "삼성SDI",
     "삼SDI":         "삼성SDI",
@@ -62,6 +61,9 @@ _SYNONYMS: dict[str, str] = {
     "이엔에이":      "삼성E&A",
     "삼성증":        "삼성증권",
     "삼성카":        "삼성카드",
+    "sk 스퀘어":         "SK스퀘어",
+    "sK스퀘어":         "SK스퀘어",
+    "Sk스퀘어":         "SK스퀘어",
 
     # ── 현대 그룹 ────────────────────────────────────────────────────────────────
     "현차":          "현대차",
@@ -137,7 +139,7 @@ _SYNONYMS: dict[str, str] = {
     "lgcns":          "LG씨엔에스",
     "lg씨엔에스":     "LG씨엔에스",
     "lg지주":         "LG",
-
+    
     # ── SK 그룹 ─────────────────────────────────────────────────────────────────
     "SKT":            "SK텔레콤",
     "SK텔":           "SK텔레콤",
@@ -191,6 +193,7 @@ _SYNONYMS: dict[str, str] = {
     "kb":            "KB금융",
     "케이비":        "KB금융",
     "신한":          "신한지주",
+    "하나":      "하나금융지주",
     "하나금융":      "하나금융지주",
     "하나지주":      "하나금융지주",
     "우리금융":      "우리금융지주",
@@ -763,9 +766,11 @@ def resolve_from_csv(message: str) -> tuple[str | None, str | None]:
     msg_lower = message.lower()
     msg_no_space = re.sub(r'\s+', '', message)
 
-    # 1. KOSPI 한글 종목명
+    # 1. KOSPI 종목명 (영문 포함 종목명은 대소문자 무시)
+    msg_no_space_lower = re.sub(r'\s+', '', msg_lower)
     for name, code in kospi_list:
-        if name in message or name in msg_no_space:
+        name_lower = name.lower()
+        if name_lower in msg_lower or name_lower in msg_no_space_lower:
             return code, name
 
     # 2. NASDAQ 한글 종목명
@@ -810,12 +815,13 @@ def resolve_all_from_csv(message: str) -> list[tuple[str, str]]:
 
     # 긴 이름부터 매칭, 뒤에 한글/영문자 없음을 확인해 부분 매칭 방지
     # ("SK하이닉스" 처리 후 "SK" 가 그 안에서 재매칭되는 것 방지)
+    exp_no_space_lower = re.sub(r'\s+', '', exp_lower)
     all_ko = sorted(kospi_list + nasdaq_ko, key=lambda x: len(x[0]), reverse=True)
     for name, code in all_ko:
         if code in seen_codes:
             continue
-        pat = re.compile(re.escape(name) + r'(?![가-힣a-zA-Z0-9])')
-        if pat.search(expanded) or pat.search(exp_no_space):
+        pat = re.compile(re.escape(name) + r'(?![가-힣a-zA-Z0-9])', re.IGNORECASE)
+        if pat.search(expanded) or pat.search(exp_no_space) or pat.search(exp_lower) or pat.search(exp_no_space_lower):
             found.append((code, name))
             seen_codes.add(code)
 

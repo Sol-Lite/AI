@@ -76,20 +76,25 @@ def _try_stock_shortcut(message: str, account_id: str, session_since: float | No
     if any(kw in msg for kw in _INTENT_KW):
         return None
 
-    # 종목명 해석 (조사 제거 후 CSV 매칭)
+    # 종목명 해석: 원본 먼저 시도 → 실패 시 조사 제거 후 재시도
+    # (예: "카카오페이" → 조사 제거 시 "카카오페"가 되므로 원본 우선)
     from app.chatbot.resolver import resolve_from_csv, _normalize_message
-    base = _STOCK_ONLY_STRIP_RE.sub("", msg)
-    if not base:
-        return None
-    code, name = resolve_from_csv(_normalize_message(base))
+    code, name = resolve_from_csv(_normalize_message(msg))
+    if not code:
+        base = _STOCK_ONLY_STRIP_RE.sub("", msg)
+        if not base:
+            return None
+        code, name = resolve_from_csv(_normalize_message(base))
     if not code:
         return None
 
     # 종목명 외 다른 내용이 있으면 숏컷 bypass → router/agent가 처리
     # synonym 적용 후 비교 (예: base="현차", name="현대차" → synonym 적용 → "현대차" → remaining="")
     from app.chatbot.resolver import _apply_synonyms
-    base_expanded = _apply_synonyms(_normalize_message(base))
-    remaining = base_expanded.replace(name, "").strip()
+    msg_expanded = _apply_synonyms(_normalize_message(msg))
+    # 조사 제거 후 비교 (예: "카카오페이는" → "카카오페이" → remaining="")
+    msg_stripped = _STOCK_ONLY_STRIP_RE.sub("", msg_expanded)
+    remaining = msg_stripped.lower().replace(name.lower(), "").strip()
     if remaining:
         return None
 
