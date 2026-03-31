@@ -422,6 +422,10 @@ def _extract_currency_pair(message: str) -> str:
 def _extract_balance_type(message: str) -> str:
     if re.search(r"총\s*자산", message):
         return "total_assets"
+    if re.search(r"달러|USD|\$", message):
+        return "usd"
+    if re.search(r"원화|KRW|원\s*잔고|원\s*예수금", message):
+        return "krw"
     if re.search(r"현금|예수금|가용|투자\s*가능", message):
         return "cash"
     return "summary"  # "잔고" 단독 → 총 자산 + 현금 함께

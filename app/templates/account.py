@@ -24,6 +24,12 @@ def format_balance(data: dict, balance_type: str = "summary") -> str:
     krw          = cash_map.get("KRW", float(data.get("totalCashKrw") or 0))
     usd          = cash_map.get("USD", 0.0)
 
+    if balance_type == "krw":
+        return f"**💰 보유 원화**\n\n{_SEP}\n\n원화(KRW) 잔고는 **{krw:,.0f}원**이에요."
+
+    if balance_type == "usd":
+        return f"**💵 보유 달러**\n\n{_SEP}\n\n달러(USD) 잔고는 **${usd:,.2f}**이에요."
+
     if balance_type == "cash":
         lines = [f"**💰 현금 잔고**\n\n{_SEP}\n"]
         lines.append(f"- 원화(KRW): **{krw:,.0f}원**")
