@@ -14,10 +14,6 @@ def get_database():
     client = get_mongo_client()
     return client[MONGO_DB]
 
-def get_news_collection():
-    db = get_database()
-    return db["news"]
-
 def get_sollite_news_collection():
     client = get_mongo_client()
     return client["sollite"]["news"]

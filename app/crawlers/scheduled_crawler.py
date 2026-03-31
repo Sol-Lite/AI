@@ -9,7 +9,6 @@ KOSPI200 + NASDAQ100 통합 스케줄링 크롤러
 import csv
 import html
 import json
-import os
 import re
 import time
 import threading

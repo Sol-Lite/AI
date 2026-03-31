@@ -406,12 +406,6 @@ def _extract_ranking_type(message: str) -> str:
     return "trading-value"  # 기본값
 
 
-# def _extract_market(message: str) -> str:
-#     if re.search(r"해외|미국|나스닥|뉴욕|NYSE|NASDAQ", message, re.IGNORECASE):
-#         return "overseas"
-#     return "domestic"
-
-
 def _extract_currency_pair(message: str) -> str:
     if re.search(r"유로|EUR", message, re.IGNORECASE):
         return "EURKRW"
