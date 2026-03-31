@@ -29,3 +29,9 @@ _INVEST_ADVICE_MESSAGE = (
     "종목 시세, 뉴스, 시황 요약은 조회할 수 있어요.\n\n"
     + _SERVICE_LIST
 )
+
+_API_ERROR_MESSAGE = (
+    "데이터를 불러오는 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.\n\n"
+    "아래 기능은 정상적으로 이용하실 수 있어요.\n\n"
+    + _SERVICE_LIST
+)

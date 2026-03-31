@@ -17,6 +17,7 @@ import json
 import re
 import httpx
 from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from app.templates.guide import _FALLBACK_MESSAGE, _API_ERROR_MESSAGE
 
 MAX_TURNS = 5
 
@@ -376,6 +377,7 @@ def _build_system() -> str:
 - 방금 호출한 도구 결과의 수치만 사용하세요. 이전 대화에 나온 수치(예: 이전 turn의 수익률, 가격)를 현재 답변에 혼용하는 것은 절대 금지입니다.
 - get_stock_price 결과가 있으면 반드시 이 형식으로 답하세요: "{stock_name} 현재가는 {current_price}이고, 전일 대비 {change} ({change_rate})입니다."
 - 도구 결과에 "error" 또는 "not_found"가 포함된 경우: 데이터를 직접 생성하거나 추측하는 것은 절대 금지입니다. get_stock_news 결과면 "{종목명}의 뉴스는 아직 수집되지 않았어요."라고 답하고, 그 외 도구는 "데이터를 불러올 수 없어요."라고 답하세요.
+- 도구 결과를 받은 뒤 "조회한 데이터를 보여드렸어요.", "데이터를 확인했습니다." 같은 내용 없는 응답은 절대 금지입니다. 반드시 사용자 질문에 맞는 실제 답변을 생성하세요.
 
 이전 대화 맥락을 반드시 활용하세요.
 직전에 사용한 도구와 동일한 도구를 사용하세요.
@@ -454,10 +456,16 @@ def _build_system() -> str:
 - 미보유: "X 종목은 현재 보유하고 있지 않아요." (보유 종목 나열 금지)
 
 포트폴리오 분석 응답 규칙:
-- 도구 결과의 수치만 그대로 해석하세요. 예) "1개월 수익률은 +3.2%입니다.", "MDD는 -8.5%입니다."
+- 도구 결과를 받으면 반드시 사용자 질문에 맞는 실질적인 답변을 생성하세요. 수치를 나열하거나 요약해서 전달하세요.
+  예) "포트폴리오 내 제일 수익률이 좋은 종목" → "현재 수익률이 가장 높은 종목은 아마존닷컴으로 +1.32%입니다."
+  예) "리스크 분석" → MDD·변동성·회복 필요 수익률 수치를 각각 설명한 뒤 2~4문장으로 요약
+- "리스크 분석" 또는 "리스크 지표" 질문이면 각 수치의 의미를 간략히 풀어서 설명하세요.
+  예) MDD -4.17% → "고점 대비 최대 -4.17% 하락이 발생했습니다."
+  예) 변동성 0.03% → "일간 변동성이 0.03%입니다."
+  예) 회복 필요 수익률 +4% → "현재 손실을 회복하려면 +4%의 수익이 필요합니다."
+- 수치 간 비교는 허용. 예) "A 종목이 B 종목보다 수익률이 높습니다."
 - "양호", "우수", "위험", "안정적" 등 주관적 평가 표현 금지
 - 투자 의견, 매수/매도 권유, 포트폴리오 조정 권유 금지
-- 수치 간 비교는 허용. 예) "A 종목이 B 종목보다 수익률이 높습니다."
 - best_stock의 return_rate가 음수(-)이면 "가장 많이 올랐다"가 아니라 "손실이 가장 적다"로 표현하세요.
   예) best_stock 수익률 -0.32% → "현재 모든 종목이 손실 중이며, 그 중 미래에셋증권이 -0.32%로 손실이 가장 적어요."
 - worst_stock의 return_rate가 양수(+)이면 "가장 많이 내렸다"가 아니라 "수익이 가장 적다"로 표현하세요.
@@ -528,9 +536,9 @@ def _run_agent(
                 resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
                 resp.raise_for_status()
             except httpx.TimeoutException:
-                return "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.", []
-            except Exception as e:
-                return f"AI 응답 오류: {e}", []
+                return _API_ERROR_MESSAGE, []
+            except Exception:
+                return _API_ERROR_MESSAGE, []
 
             data       = resp.json()
             message    = data.get("message", {})
@@ -547,7 +555,7 @@ def _run_agent(
                     tool_calls = [synthetic]
                 else:
                     intermediate = messages[turn_start:]
-                    return content or "답변을 생성하지 못했습니다.", intermediate
+                    return content or _FALLBACK_MESSAGE, intermediate
 
             messages.append({"role": "assistant", "tool_calls": tool_calls})
             for call in tool_calls:
@@ -572,13 +580,21 @@ def _run_agent(
                         if name == "get_stock_news":
                             stock_name = args.get("stock_code", "해당 종목")
                             return f"{stock_name}의 뉴스는 아직 수집되지 않았어요.", intermediate
-                        return "데이터를 불러올 수 없어요.", intermediate
+                        return _API_ERROR_MESSAGE, intermediate
                 except Exception:
                     pass
 
                 # get_portfolio_info(holdings/risk) 결과에 특정 종목이 없으면 즉시 "미보유" 반환
                 # returns/sector/stats 는 종목별 데이터가 없으므로 체크 제외
-                if name == "get_portfolio_info" and args.get("info_type") in ("holdings", "risk"):
+                # 포트폴리오 비교/분석 문맥(가장, 수익률, 리스크 등)은 특정 종목 질문이 아니므로 체크 제외
+                _PORTFOLIO_ANALYSIS_KW = re.compile(
+                    r"가장|제일|젤|수익률|리스크|분석|비중|비율|높은|낮은|많이|적게|오른|내린"
+                )
+                if (
+                    name == "get_portfolio_info"
+                    and args.get("info_type") in ("holdings", "risk")
+                    and not _PORTFOLIO_ANALYSIS_KW.search(user_message)
+                ):
                     try:
                         _pf = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
                         from app.stock_ref import resolve_from_csv, _normalize_message as _nm
@@ -597,7 +613,7 @@ def _run_agent(
 
                 messages.append({"role": "tool", "name": name, "content": tool_result})
 
-    return "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.", []
+    return _FALLBACK_MESSAGE, []
 
 
 # ── 맥락 보강 ─────────────────────────────────────────────────────────────────
@@ -610,7 +626,7 @@ _TOOL_SUFFIX = {
 }
 
 # "그 종목", "그거", "그 주식" 등 직전 맥락 종목을 가리키는 패턴
-_THAT_STOCK_RE = re.compile(r"그\s*(종목|거|주식|애|놈)")
+_THAT_STOCK_RE = re.compile(r"(그|해당)\s*(종목|거|주식|애|놈)")
 
 
 def _extract_last_stock(history: list) -> str | None:
@@ -655,6 +671,31 @@ def _extract_last_stock(history: list) -> str | None:
                     stock = args.get("stock_code", "")
                     if stock:
                         return stock
+
+    # 1-c. get_portfolio_info(risk/returns) 결과에서 best/worst 종목 추출
+    # 직전 user 메시지 키워드로 내린(worst) vs 오른(best) 판단
+    _last_user_msg = ""
+    for m in reversed(recent):
+        if m.get("role") == "user":
+            _last_user_msg = m.get("content", "")
+            break
+    _want_worst = bool(re.search(r"내린|하락|손실|나쁜|최저|낮", _last_user_msg))
+    for msg in reversed(recent):
+        if msg.get("role") != "tool" or msg.get("name") != "get_portfolio_info":
+            continue
+        try:
+            data = json.loads(msg["content"]) if isinstance(msg["content"], str) else msg["content"]
+            if _want_worst:
+                stock_obj = data.get("worst_stock") or data.get("best_stock")
+            else:
+                stock_obj = data.get("best_stock") or data.get("worst_stock")
+            if isinstance(stock_obj, dict):
+                sname = stock_obj.get("name") or stock_obj.get("stock_name", "")
+                if sname and len(sname) >= 2:
+                    return sname
+        except Exception:
+            pass
+        break
 
     # 2. assistant 텍스트 첫 줄에서 "종목명 + 조사" 패턴 추출
     #    예) "현대차가 -0.49%로", "SK하이닉스는 922,000원"
@@ -775,6 +816,34 @@ def _enrich_with_context(user_message: str, history: list) -> str:
         if stock:
             msg = _THAT_STOCK_RE.sub(stock, msg)
 
+    # ── 1-a0. 리스크 분석 질문 → risk 타입 강제 + 수치 해설 지시 ─────────────────
+    if re.search(r"리스크\s*(분석|지표|현황|어때|얼마)", msg) or (
+        "리스크" in msg and "분석" in msg
+    ):
+        return (
+            f"{msg}\n"
+            f"(get_portfolio_info(info_type=risk)를 호출한 뒤, "
+            f"MDD·변동성·회복 필요 수익률·평가손익·worst_stock/best_stock 수치를 수치와 함께 설명해주세요. "
+            f"각 수치가 의미하는 바를 2~4문장으로 자연스럽게 요약하세요. 투자 권유 금지.)"
+        )
+
+    # ── 1-a. 보유 종목 비교 질문 → risk 타입 강제 지시 ───────────────────────────
+    # "보유 종목 중 가장 많이 오른/내린" 패턴 — LLM이 "holdings"를 고르지 않도록 명시
+    _PORTFOLIO_RANK_RE = re.compile(
+        r"보유\s*(종목|주식|중|한).*?(가장|제일|젤|많이|오른|내린|올랐|내렸|수익|손해|높|낮)"
+        r"|"
+        r"(가장|제일|젤|더)\s*(많이)?\s*(오른|내린|올랐|내렸|수익|손실).*보유"
+    )
+    if _PORTFOLIO_RANK_RE.search(msg):
+        needs_price = any(pk in msg for pk in ("현재가", "시세", "주가", "얼마"))
+        if needs_price:
+            return (
+                f"{msg}\n"
+                f"(먼저 get_portfolio_info(info_type=risk)로 best_stock/worst_stock을 확인한 뒤, "
+                f"해당 종목의 현재가를 get_stock_price로 조회하세요.)"
+            )
+        return f"{msg}\n(get_portfolio_info(info_type=risk)를 사용하세요. best_stock 또는 worst_stock으로 답하세요.)"
+
     # ── 1-b. 포트폴리오 키워드 감지 → get_portfolio_info 도구 지시 주입 ─────
     for kw in _PORTFOLIO_FORCE_KW:
         if kw in msg:
@@ -787,7 +856,7 @@ def _enrich_with_context(user_message: str, history: list) -> str:
                     f"(먼저 get_portfolio_info(info_type={info_type})로 종목을 확인한 뒤, "
                     f"해당 종목의 현재가를 get_stock_price로 조회하세요.)"
                 )
-            return f"{msg}\n(get_portfolio_info(info_type={info_type})를 사용하세요. get_stock_price 사용 금지)"
+            return f"{msg}\n(get_portfolio_info(info_type={info_type})를 호출한 뒤, 결과를 바탕으로 질문에 맞게 수치를 직접 답하세요. get_stock_price 사용 금지)"
 
     # ── 2. 가격/뉴스/거래 키워드 있는데 종목명 없음 → 직전 종목 주입 ─────────
     if any(kw in msg for kw in _PRICE_NEWS_KW) and not _has_stock_in_msg(msg):

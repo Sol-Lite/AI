@@ -255,12 +255,15 @@ def pre_dispatch(
             intent = "unknown"
 
     # "보유 종목 중 가장 많이 오른 건?" → 항상 agent
-    if intent in ("ranking", "chart_price", "unknown") and _PORTFOLIO_COMPARISON_RE.search(message):
+    if intent in ("ranking", "chart_price", "unknown", "portfolio") and _PORTFOLIO_COMPARISON_RE.search(message):
         intent = "unknown"
 
     # 종목 비교 질문 처리 — '보유 종목 중' 문구 없이 여러 종목을 비교하는 경우 단일 종목 안내
+    # _AMBIGUOUS_RE가 이미 매칭된 경우(제일 많이 오른 등)는 agent로 처리하므로 건너뜀
     if intent in ("ranking", "chart_price", "unknown") and _COMPARISON_RE.search(message):
-        if not _PORTFOLIO_COMPARISON_RE.search(message) and "보유" not in message:
+        if (not _PORTFOLIO_COMPARISON_RE.search(message)
+                and "보유" not in message
+                and not _AMBIGUOUS_RE.search(message)):
             intent = "chart_price"
             params = {**params, "multi_stock": True}
 
