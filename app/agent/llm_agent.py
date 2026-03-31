@@ -15,9 +15,11 @@
 """
 import json
 import re
-import httpx
-from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+import boto3
+from app.core.config import SAGEMAKER_ENDPOINT_NAME, AWS_REGION, LLM_TIMEOUT_SECONDS
 from app.templates.guide import _FALLBACK_MESSAGE, _API_ERROR_MESSAGE
+
+_sagemaker = boto3.client("sagemaker-runtime", region_name=AWS_REGION)
 
 MAX_TURNS = 5
 
@@ -523,25 +525,27 @@ def _run_agent(
     messages.append({"role": "user", "content": user_message})
     turn_start = len(messages)  # tool 메시지가 추가되기 시작하는 인덱스
 
-    with httpx.Client(timeout=120) as client:
-        for _ in range(MAX_TURNS):
+    for _ in range(MAX_TURNS):
             payload = {
-                "model":    OLLAMA_MODEL,
-                "messages": messages,
-                "tools":    tools,
-                "stream":   False,
-                "options":  {"temperature": 0},
+                "messages":   messages,
+                "tools":      tools,
+                "tool_choice": "auto",
+                "temperature": 0,
+                "max_tokens":  1024,
             }
             try:
-                resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
-                resp.raise_for_status()
-            except httpx.TimeoutException:
+                resp = _sagemaker.invoke_endpoint(
+                    EndpointName=SAGEMAKER_ENDPOINT_NAME,
+                    ContentType="application/json",
+                    Body=json.dumps(payload),
+                )
+                data = json.loads(resp["Body"].read())
+            except _sagemaker.exceptions.ModelError:
                 return _API_ERROR_MESSAGE, []
             except Exception:
                 return _API_ERROR_MESSAGE, []
 
-            data       = resp.json()
-            message    = data.get("message", {})
+            message    = data.get("choices", [{}])[0].get("message", {})
             tool_calls = message.get("tool_calls") or []
 
             if not tool_calls:

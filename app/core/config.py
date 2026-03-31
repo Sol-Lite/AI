@@ -4,9 +4,10 @@ from pydantic_settings import BaseSettings
 
 load_dotenv(override=True)
 
-# LLM
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+# SageMaker LLM
+SAGEMAKER_ENDPOINT_NAME = os.getenv("SAGEMAKER_ENDPOINT_NAME", "")
+AWS_REGION              = os.getenv("AWS_REGION", "ap-northeast-2")
+LLM_TIMEOUT_SECONDS     = float(os.getenv("LLM_TIMEOUT_SECONDS", "60"))
 
 # Oracle
 ORACLE_DSN      = os.getenv("ORACLE_DSN", "localhost:1521/XEPDB1")

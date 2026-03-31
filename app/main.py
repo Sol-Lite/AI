@@ -1,4 +1,5 @@
 # main.py
+import os
 import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
@@ -14,14 +15,24 @@ from app import crawlers as crawler
 # 조합되지 않은 한글 자모 감지 (오타/IME 미완성 입력) — HTTP 입력 검증 전용
 _JAMO_RE = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]")
 
+ENABLE_CRAWLERS = os.getenv("ENABLE_CRAWLERS", "true").lower() == "true"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    crawler.start()   # 서버 시작 시 크롤러 백그라운드 스레드 실행
+    if ENABLE_CRAWLERS:
+        crawler.start()
     yield
-    crawler.stop()    # 서버 종료 시 크롤러 정상 종료
+    if ENABLE_CRAWLERS:
+        crawler.stop()
 
 
 app = FastAPI(title="Investment Chatbot", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 class ChatRequest(BaseModel):

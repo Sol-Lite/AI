@@ -1,0 +1,40 @@
+name: Deploy AI to Production
+
+on:
+  push:
+    branches:
+      - release
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: S3 업로드
+        run: |
+          zip -r ai-app.zip . \
+            --exclude "*.pyc" \
+            --exclude "*/__pycache__/*" \
+            --exclude ".git/*" \
+            --exclude ".env" \
+            --exclude "*.egg-info/*"
+          aws s3 cp ai-app.zip s3://shinhansec-sol-lite-deploy/ai/ai-app.zip
+
+      - name: CodeDeploy 배포
+        run: |
+          aws deploy create-deployment \
+            --application-name SolLite-AI \
+            --deployment-group-name SolLite-AI-Group \
+            --s3-location bucket=shinhansec-sol-lite-deploy,bundleType=zip,key=ai/ai-app.zip \
+            --deployment-config-name CodeDeployDefault.OneAtATime \
+            --description "Deploy from GitHub Actions (${GITHUB_SHA::7})"
