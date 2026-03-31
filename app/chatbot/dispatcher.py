@@ -53,7 +53,13 @@ def _handle_index(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_data(type="index")
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "지수 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_index(data, user_message=message), "_is_template": True}
+    indices = data if isinstance(data, list) else data.get("indices", [])
+    return {
+        "type": "index",
+        "reply": format_index(data, user_message=message),
+        "data": {"indices": indices},
+        "_is_template": True,
+    }
 
 
 def _handle_exchange_rate(params: dict, user_context: dict, message: str) -> dict:
@@ -61,7 +67,17 @@ def _handle_exchange_rate(params: dict, user_context: dict, message: str) -> dic
     data = get_market_data(type="exchange", currency_pair=currency_pair)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "환율 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_exchange_rate(data), "_is_template": True}
+    return {
+        "type": "exchange_rate",
+        "reply": format_exchange_rate(data),
+        "data": {
+            "currency_pair": currency_pair,
+            "rate":          data.get("rate"),
+            "change":        data.get("change"),
+            "change_rate":   data.get("change_rate") or data.get("changeRate"),
+        },
+        "_is_template": True,
+    }
 
 
 def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
@@ -70,7 +86,16 @@ def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_data(type="ranking", ranking_type=ranking_type, market=market)
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "순위 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-    return {"reply": format_ranking(data), "_is_template": True}
+    return {
+        "type": "ranking",
+        "reply": format_ranking(data),
+        "data": {
+            "ranking_type": ranking_type,
+            "market": market,
+            "stocks": data.get("stocks", data) if isinstance(data, dict) else data,
+        },
+        "_is_template": True,
+    }
 
 
 def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
@@ -86,7 +111,19 @@ def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
             return {"reply": f"종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
         return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
     tool_ctx = _get_tool_context("get_stock_price", {"stock_code": stock_code}, data)
-    return {"reply": format_chart_price(data), "_tool_context": tool_ctx, "_is_template": True}
+    card_data = {
+        "stock_code":    data.get("stock_code") or stock_code,
+        "stock_name":    data.get("stock_name", ""),
+        "market_type":   data.get("market_type"),
+        "exchange_code": data.get("exchange_code"),
+    }
+    return {
+        "type": "stock_price",
+        "reply": format_chart_price(data),
+        "data": card_data,
+        "_tool_context": tool_ctx,
+        "_is_template": True,
+    }
 
 
 def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
@@ -94,7 +131,16 @@ def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
     if isinstance(data, dict) and data.get("error"):
         return {"reply": "잔고 조회에 실패했습니다. 잠시 후 다시 시도해 주세요."}
     balance_type = params.get("balance_type", "summary")
-    return {"reply": format_balance(data, balance_type=balance_type), "_is_template": True}
+    return {
+        "type": "balance",
+        "reply": format_balance(data, balance_type=balance_type),
+        "data": {
+            "total_assets":    data.get("totalAssets"),
+            "total_cash_krw":  data.get("totalCashKrw"),
+            "balance_type":    balance_type,
+        },
+        "_is_template": True,
+    }
 
 
 def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
@@ -149,13 +195,13 @@ def _handle_market_summary(params: dict, user_context: dict, message: str) -> di
 def _handle_korea_summary(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_summary(type="korea")
     tool_ctx = _get_tool_context("get_market_summary", {"market": "korea"}, data)
-    return {"reply": format_korea_summary(data), "_tool_context": tool_ctx, "_is_template": True}
+    return {"type": "market_overview", "reply": format_korea_summary(data), "_tool_context": tool_ctx, "_is_template": True}
 
 
 def _handle_us_summary(params: dict, user_context: dict, message: str) -> dict:
     data = get_market_summary(type="us")
     tool_ctx = _get_tool_context("get_market_summary", {"market": "us"}, data)
-    return {"reply": format_us_summary(data), "_tool_context": tool_ctx, "_is_template": True}
+    return {"type": "market_overview", "reply": format_us_summary(data), "_tool_context": tool_ctx, "_is_template": True}
 
 
 _SECTOR_GUIDE = (
@@ -187,7 +233,7 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
                 tool_ctx.extend(_get_tool_context("get_stock_news", {"stock_code": code}, data))
         if not results:
             return {"reply": "조회된 뉴스가 없어요."}
-        return {"reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
+        return {"type": "stock_news", "reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
 
     # 섹터/테마 키워드 질문이면 안내 메시지 반환
     if not stock_code or stock_code.lower() in _SECTOR_KEYWORDS:
@@ -203,7 +249,14 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     tool_ctx = _get_tool_context("get_stock_news", {"stock_code": stock_code}, data)
     reply = format_stock_news(data)
     has_news = bool(data.get("news"))
-    return {"reply": reply, "_tool_context": tool_ctx, "_is_template": has_news}
+    return {
+        "type": "stock_news",
+        "reply": reply,
+        "stock_code": data.get("stock_code") or stock_code,
+        "stock_name": data.get("stock_name") or "",
+        "_tool_context": tool_ctx,
+        "_is_template": has_news,
+    }
 
 
 _HOLDINGS_NEWS_RE = re.compile(
@@ -299,7 +352,7 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
                     "news":       news_data.get("news", []),
                 })
             tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": "holdings"}, {"holdings": holdings})
-            return {"reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
+            return {"type": "stock_news", "reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
             pass
 
