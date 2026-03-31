@@ -41,7 +41,7 @@ HEADERS = {
 KST = timezone(timedelta(hours=9))
 
 # ── MongoDB 연결 ──────────────────────────────────────────────
-client     = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+client     = MongoClient(MONGO_URI)
 collection = client["sollite"]["news"]
 
 

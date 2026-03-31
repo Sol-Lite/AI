@@ -46,7 +46,7 @@ SCHEDULE_INTERVAL = 1800   # 30분 (초)
 MAX_WORKERS = 10           # 동시 크롤링 스레드 수 (너무 높이면 IP 차단 위험)
 
 # ── MongoDB 연결 ──────────────────────────────────────────────
-client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
 collection = db[COLLECTION_NAME]
 
