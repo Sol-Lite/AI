@@ -16,7 +16,6 @@ from app.templates.chart_price import format_chart_price
 from app.templates.exchange_rate import format_exchange_rate
 from app.templates.account import format_balance
 from app.templates.stock_news import format_korea_summary, format_us_summary, format_stock_news
-from app.templates.stock_compare import format_stock_compare
 from app.templates.guide import _GUIDE_MESSAGE, _FALLBACK_MESSAGE, _INVEST_ADVICE_MESSAGE
 
 # 섹터/테마 키워드 — 종목명이 아닌 것들 (stock_news, unknown 핸들러에서 사용)
@@ -177,7 +176,7 @@ def _handle_ranking(params: dict, user_context: dict, message: str) -> dict:
 
 def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
     if params.get("multi_stock"):
-        return {"reply": "현재가는 종목 하나씩 조회할 수 있어요. 어떤 종목의 시세를 볼까요?\n예) 삼성전자 현재가"}
+        return {"reply": "종목명이 하나일 때만 답변이 가능해요. 종목명을 하나만 입력해 주세요.\n예) 삼성전자 시세"}
     if params.get("stock_not_found"):
         return {"reply": "종목명을 정확히 입력해 주세요.\n예) 삼성전자 시세, AAPL 주가"}
     stock_code = params.get("stock_code")
@@ -223,7 +222,7 @@ def _handle_balance(params: dict, user_context: dict, message: str) -> dict:
 
 def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
     if params.get("multi_stock"):
-        return {"reply": "주문은 종목 하나씩 진행할 수 있어요. 어떤 종목을 거래하시겠어요?\n예) 삼성전자 매수"}
+        return {"reply": "종목명이 하나일 때만 답변이 가능해요. 종목명을 하나만 입력해 주세요.\n예) 삼성전자 매수"}
     stock_code = params.get("stock_code")
     if not stock_code:
         return {"reply": "어떤 종목을 거래하시겠어요? 종목명을 알려주세요.\n예) 신한지주 거래/매수/매도"}
@@ -238,7 +237,7 @@ def _handle_buy_intent(params: dict, user_context: dict, message: str) -> dict:
 
 def _handle_sell_intent(params: dict, user_context: dict, message: str) -> dict:
     if params.get("multi_stock"):
-        return {"reply": "주문은 종목 하나씩 진행할 수 있어요. 어떤 종목을 매도하시겠어요?\n예) 삼성전자 매도"}
+        return {"reply": "종목명이 하나일 때만 답변이 가능해요. 종목명을 하나만 입력해 주세요.\n예) 삼성전자 매도"}
     stock_code = params.get("stock_code")
     if not stock_code:
         return {"reply": "어떤 종목을 매도하시겠어요? 종목명을 알려주세요.\n예) 신한지주 매도"}
@@ -277,7 +276,8 @@ def _handle_market_summary(params: dict, user_context: dict, message: str) -> di
         + _get_tool_context("get_market_summary", {"market": "us"}, us)
     )
     return {
-        "reply": f"{format_korea_summary(korea)}\n\n{format_us_summary(us)}",
+        "type":         "market_overview",
+        "reply":        f"{format_korea_summary(korea)}\n\n{format_us_summary(us)}",
         "_tool_context": tool_ctx,
         "_is_template": True,
     }
@@ -296,26 +296,13 @@ def _handle_us_summary(params: dict, user_context: dict, message: str) -> dict:
 
 
 def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
-    from app.templates.stock_news import format_holdings_news
+    if params.get("multi_stock"):
+        return {"reply": "종목명이 하나일 때만 답변이 가능해요. 종목명을 하나만 입력해 주세요.\n예) 삼성전자 뉴스"}
 
     if params.get("stock_not_found"):
         return {"reply": "종목명을 정확히 입력해 주세요.\n예) 삼성전자 뉴스, AAPL 뉴스"}
 
-    stock_code  = params.get("stock_code")
-    stock_codes = params.get("stock_codes")  # 복수 종목
-
-    # 여러 종목 뉴스 — 종목별 최신 1건씩 표시
-    if stock_codes:
-        results  = []
-        tool_ctx: list[dict] = []
-        for code in stock_codes:
-            data = get_market_summary(type="stock_news", stock_code=code)
-            if isinstance(data, dict) and not data.get("error"):
-                results.append(data)
-                tool_ctx.extend(_get_tool_context("get_stock_news", {"stock_code": code}, data))
-        if not results:
-            return {"reply": "조회된 뉴스가 없어요."}
-        return {"type": "stock_news", "reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
+    stock_code = params.get("stock_code")
 
     # 섹터/테마 키워드 질문이면 안내 메시지 반환
     if not stock_code or stock_code.lower() in SECTOR_KEYWORDS:
@@ -465,37 +452,6 @@ def _handle_trades(params: dict, user_context: dict, message: str) -> dict:
         return {"reply": _FALLBACK_MESSAGE}
 
 
-def _handle_stock_compare(params: dict, user_context: dict, message: str) -> dict:
-    """명시적으로 지정된 2개 이상 종목의 시세를 조회해 등락률/등락폭을 비교합니다."""
-    stock_codes: list[tuple[str, str]] = params.get("stock_codes", [])
-    if len(stock_codes) < 2:
-        return {"reply": "비교할 종목을 두 개 이상 알려주세요.\n예) 삼성전자 SK하이닉스 비교"}
-
-    results  = []
-    failed   = []
-    tool_ctx = []
-    for code, name in stock_codes:
-        data = get_market_data(type="price", stock_code=code)
-        if isinstance(data, dict) and data.get("error"):
-            failed.append(name or code)
-            continue
-        results.append(data)
-        tool_ctx.extend(_get_tool_context("get_stock_price", {"stock_code": code}, data))
-
-    if not results:
-        return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
-
-    reply = format_stock_compare(results)
-    if failed:
-        reply += f"\n({', '.join(failed)}은(는) 조회에 실패했어요.)"
-
-    return {
-        "type": "stock_price",
-        "reply": reply,
-        "_tool_context": tool_ctx,
-        "_is_template": True,
-    }
-
 
 def _handle_invest_advice(params: dict, user_context: dict, message: str) -> dict:
     return {"reply": _INVEST_ADVICE_MESSAGE}
@@ -574,19 +530,26 @@ def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
             except Exception:
                 pass
 
-        # 에이전트가 get_stock_news를 호출한 경우 → 뉴스 없음/오류 모두 템플릿 형식으로 통일
+        # 에이전트가 get_stock_news를 호출한 경우 → 카드 형식으로 변환
         for _msg in tool_ctx:
             if _msg.get("role") == "tool" and _msg.get("name") == "get_stock_news":
                 try:
                     import json as _json
                     _data = _json.loads(_msg["content"]) if isinstance(_msg["content"], str) else _msg["content"]
                     if not _data.get("news"):
-                        _template_data = {
+                        _data = {
                             "stock_code": _data.get("stock_code") or message,
                             "stock_name": _data.get("stock_name") or message,
                             "news": [],
                         }
-                        reply = format_stock_news(_template_data)
+                    return {
+                        "type":         "stock_news",
+                        "reply":        format_stock_news(_data),
+                        "stock_code":   _data.get("stock_code") or "",
+                        "stock_name":   _data.get("stock_name") or "",
+                        "_tool_context": tool_ctx,
+                        "_is_template": True,
+                    }
                 except Exception:
                     pass
                 break

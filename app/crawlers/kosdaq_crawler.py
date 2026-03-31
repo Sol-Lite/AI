@@ -294,8 +294,10 @@ def run_job() -> None:
             "fetched_at": datetime.now(),
         })
 
-    del_result = collection.delete_many({})
-    print(f"  기존 데이터 삭제: {del_result.deleted_count}건")
-
-    result = collection.insert_many(docs)
-    print(f"  MongoDB 저장 완료: {len(result.inserted_ids)}건")
+    for doc in docs:
+        collection.update_one(
+            {"news_id": doc["news_id"]},
+            {"$set": doc},
+            upsert=True,
+        )
+    print(f"  MongoDB 저장 완료: {len(docs)}건")

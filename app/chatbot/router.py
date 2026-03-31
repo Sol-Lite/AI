@@ -443,7 +443,7 @@ def _extract_params(intent: str, message: str) -> dict:
     if intent == "stock_news":
         all_stocks = resolve_all_from_csv(_normalize_message(message))
         if len(all_stocks) > 1:
-            return {"stock_codes": [code for code, _ in all_stocks]}
+            return {"multi_stock": True}
         return {"stock_code": _extract_stock(message)}
 
     if intent in ("buy_intent", "sell_intent"):

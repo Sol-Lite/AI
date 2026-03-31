@@ -10,12 +10,12 @@
 import re
 
 from app.chatbot import handlers as _h
-from app.chatbot.session import _last_tool_was_portfolio, _has_recent_price_context
+from app.chatbot.session import _last_tool_was_portfolio
 from app.data.market import get_market_data
 from app.data.news import get_market_summary
 from app.templates.chart_price import format_chart_price
 from app.templates.stock_news import format_stock_news
-from app.stock_ref import resolve_from_csv, _normalize_message, _apply_synonyms, resolve_all_from_csv
+from app.stock_ref import resolve_from_csv, _normalize_message, _apply_synonyms
 
 
 # ── 핸들러 매핑 테이블 ────────────────────────────────────────────────────────
@@ -30,7 +30,6 @@ _HANDLERS = {
     "buy_intent":     _h._handle_buy_intent,
     "sell_intent":    _h._handle_sell_intent,
     "invest_advice":  _h._handle_invest_advice,
-    "stock_compare":  _h._handle_stock_compare,
     "exchange_order": _h._handle_exchange_order,
     "market_summary": _h._handle_market_summary,
     "korea_summary":  _h._handle_korea_summary,
@@ -137,21 +136,25 @@ def try_shortcut(
         return None
 
     code, name = resolve_from_csv(_normalize_message(msg))
+    _via_base = False
     if not code:
         base = _STOCK_ONLY_STRIP_RE.sub("", msg)
         if not base:
             return None
         code, name = resolve_from_csv(_normalize_message(base))
+        _via_base = True
     if not code:
         return None
 
     # 종목명 외 다른 내용이 있으면 bypass
     # (종목명 자체가 '이'로 끝나는 경우를 위해 먼저 종목명을 제거한 뒤 조사를 처리)
-    msg_expanded = _apply_synonyms(_normalize_message(msg))
-    remaining = msg_expanded.lower().replace(name.lower(), "").strip()
-    remaining_stripped = _STOCK_ONLY_STRIP_RE.sub("", remaining)
-    if remaining_stripped.strip():
-        return None
+    # _via_base 경로(조사를 제거한 뒤 해소): base 자체가 종목 alias뿐이므로 추가 내용 없음
+    if not _via_base:
+        msg_expanded = _apply_synonyms(_normalize_message(msg))
+        remaining = msg_expanded.lower().replace(name.lower(), "").strip()
+        remaining_stripped = _STOCK_ONLY_STRIP_RE.sub("", remaining)
+        if remaining_stripped.strip():
+            return None
 
     try:
         from app.db.mongo import get_chat_history
@@ -216,7 +219,10 @@ def try_shortcut(
             data = {**data, "stock_name": name}
         tool_ctx = _h._get_tool_context("get_stock_news", {"stock_code": code}, data)
         return {
-            "reply": format_stock_news(data),
+            "type":       "stock_news",
+            "reply":      format_stock_news(data),
+            "stock_code": data.get("stock_code") or code,
+            "stock_name": data.get("stock_name") or name,
             "_tool_context": tool_ctx,
             "_is_template": bool(data.get("news")),
         }
@@ -252,28 +258,18 @@ def pre_dispatch(
     if intent in ("ranking", "chart_price", "unknown") and _PORTFOLIO_COMPARISON_RE.search(message):
         intent = "unknown"
 
-    # 종목 비교 질문 처리
+    # 종목 비교 질문 처리 — '보유 종목 중' 문구 없이 여러 종목을 비교하는 경우 단일 종목 안내
     if intent in ("ranking", "chart_price", "unknown") and _COMPARISON_RE.search(message):
         if not _PORTFOLIO_COMPARISON_RE.search(message) and "보유" not in message:
-            try:
-                all_stocks = resolve_all_from_csv(_normalize_message(message))
-                if len(all_stocks) >= 2:
-                    intent = "stock_compare"
-                    params = {**params, "stock_codes": all_stocks}
-                elif _has_recent_price_context(account_id, session_since):
-                    intent = "unknown"
-            except Exception:
-                if _has_recent_price_context(account_id, session_since):
-                    intent = "unknown"
-        else:
-            intent = "unknown"
+            intent = "chart_price"
+            params = {**params, "multi_stock": True}
 
     # 매수·매도 intent인데 추천 질문 형태 → invest_advice 안내
     if intent in ("buy_intent", "sell_intent", "unknown") and _INVEST_ADVICE_RE.search(message):
         intent = "invest_advice"
 
     # 시세/뉴스 intent인데 종목 미지정
-    if intent in ("chart_price", "stock_news") and not params.get("stock_code"):
+    if intent in ("chart_price", "stock_news") and not params.get("stock_code") and not params.get("multi_stock"):
         if _has_explicit_stock_token(message):
             params = {**params, "stock_not_found": True}
         else:
