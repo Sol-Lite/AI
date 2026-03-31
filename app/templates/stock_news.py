@@ -1,5 +1,5 @@
 """
-시황 및 종목 뉴스 응답 템플릿 (한국 시황 / 미국 시황 / 종목별 뉴스)
+시황 및 종목 뉴스 응답 템플릿 (국내 시황 / 해외 시황 / 종목별 뉴스)
 """
 
 _SEP = "━" * 22
@@ -10,10 +10,10 @@ _NEWS_ICONS = ["1️⃣", "2️⃣", "3️⃣"]
 def format_korea_summary(data: dict) -> str:
     summary = data.get("summary")
     if not summary:
-        return "한국 시황 정보를 불러올 수 없습니다."
+        return "국내 시황 정보를 불러올 수 없습니다."
 
     if isinstance(summary, str):
-        return f"**🇰🇷 한국 시황**\n\n{_SEP}\n\n{summary}"
+        return f"**🇰🇷 국내 시황**\n\n{_SEP}\n\n{summary}"
 
     published_at     = data.get("published_at", "")
     date             = published_at or summary.get("date", "")
@@ -22,7 +22,7 @@ def format_korea_summary(data: dict) -> str:
     stocks           = summary.get("stocks", {})
     one_line_summary = summary.get("one_line_summary", "")
 
-    sections = [f"**🇰🇷 한국 시황**", _SEP]
+    sections = [f"**🇰🇷 국내 시황**", _SEP]
 
     if one_line_summary:
         sections.append(f"**💬 {one_line_summary}**")
@@ -65,10 +65,10 @@ def format_korea_summary(data: dict) -> str:
 def format_us_summary(data: dict) -> str:
     summary = data.get("summary")
     if not summary:
-        return "미국 시황 정보를 불러올 수 없습니다."
+        return "해외 시황 정보를 불러올 수 없습니다."
 
     if isinstance(summary, str):
-        return f"**🇺🇸 미국 시황**\n\n{_SEP}\n\n{summary}"
+        return f"**🇺🇸 해외 시황**\n\n{_SEP}\n\n{summary}"
 
     published_at     = data.get("published_at", "")
     date             = published_at or summary.get("date", "")
@@ -76,7 +76,7 @@ def format_us_summary(data: dict) -> str:
     market_sentiment = summary.get("market_sentiment", "")
     one_line_summary = summary.get("one_line_summary", "")
 
-    sections = [f"**🇺🇸 미국 시황**", _SEP]
+    sections = [f"**🇺🇸 해외 시황**", _SEP]
 
     if one_line_summary:
         sections.append(f"**💬 {one_line_summary}**")
