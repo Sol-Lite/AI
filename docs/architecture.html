@@ -416,48 +416,139 @@
     <h2>📁 폴더 구조</h2>
     <p class="section-sub">각 폴더가 어떤 역할을 하는지 한눈에 파악해보세요.</p>
 
-    <div class="tree">
-<span class="dir">AI/</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="key">app/main.py</span>          <span class="note"># 진입점: /chat 엔드포인트, 인증, 라우팅 총괄</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/core/</span>             <span class="note"># 기반 설정</span>
-<span class="line">│   ├── </span><span class="file">auth.py</span>              <span class="note"># JWT 토큰 검증 (Spring API 연동, 30분 캐시)</span>
-<span class="line">│   └── </span><span class="file">config.py</span>            <span class="note"># 환경변수 로드 (DB URL, 포트 등)</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/chatbot/</span>          <span class="note"># 규칙 기반 의도 분류 엔진</span>
-<span class="line">│   ├── </span><span class="key">router.py</span>            <span class="note"># 정규식으로 15가지 의도 감지</span>
-<span class="line">│   ├── </span><span class="key">dispatcher.py</span>        <span class="note"># 의도별 핸들러 라우팅 + 응답 포맷팅</span>
-<span class="line">│   └── </span><span class="file">resolver.py</span>          <span class="note"># 종목명 → 종목코드 변환 (동의어 650개+)</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/agent/</span>            <span class="note"># AI 에이전트 (복잡한 질문 처리)</span>
-<span class="line">│   └── </span><span class="key">llm_agent.py</span>         <span class="note"># Ollama llama3.1:8b ReAct 에이전트, 5개 도구</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/data/</span>             <span class="note"># 외부 데이터 소스 연동</span>
-<span class="line">│   ├── </span><span class="file">market.py</span>            <span class="note"># 시세, 지수, 환율, 순위 (Spring API)</span>
-<span class="line">│   ├── </span><span class="file">news.py</span>              <span class="note"># 시황 요약, 종목 뉴스 (MongoDB)</span>
-<span class="line">│   ├── </span><span class="file">account.py</span>           <span class="note"># 잔고, 예수금 (Spring API)</span>
-<span class="line">│   ├── </span><span class="file">portfolio.py</span>         <span class="note"># 보유 종목, 수익률, 섹터 (Oracle)</span>
-<span class="line">│   └── </span><span class="file">trades.py</span>            <span class="note"># 거래 내역 조회 (Oracle)</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/templates/</span>        <span class="note"># 응답 텍스트 포맷터</span>
-<span class="line">│   ├── </span><span class="file">index.py</span>             <span class="note"># 지수 표 포맷</span>
-<span class="line">│   ├── </span><span class="file">chart_price.py</span>       <span class="note"># 종목 시세 카드 포맷</span>
-<span class="line">│   ├── </span><span class="file">portfolio.py</span>         <span class="note"># 포트폴리오 요약 포맷</span>
-<span class="line">│   ├── </span><span class="file">trades.py</span>            <span class="note"># 거래내역 표 포맷</span>
-<span class="line">│   └── </span><span class="file">guide.py</span>             <span class="note"># 도움말 메시지</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/db/</span>               <span class="note"># 데이터베이스 연결</span>
-<span class="line">│   ├── </span><span class="file">oracle.py</span>            <span class="note"># Oracle 커넥션 풀 + 종목코드 조회</span>
-<span class="line">│   └── </span><span class="file">mongo.py</span>             <span class="note"># MongoDB 대화 히스토리 저장/불러오기</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="dir">app/crawlers/</span>         <span class="note"># 백그라운드 뉴스 수집기 (스레드 실행)</span>
-<span class="line">│   ├── </span><span class="file">scheduled_crawler.py</span> <span class="note"># 종목 뉴스 30분마다 수집</span>
-<span class="line">│   ├── </span><span class="file">kosdaq_crawler.py</span>    <span class="note"># 매일 16:30 한국 시장 마감 요약</span>
-<span class="line">│   └── </span><span class="file">nasdaq_crawler.py</span>    <span class="note"># 매일 08:40 미국 시장 프리뷰</span>
-<span class="line">│</span>
-<span class="line">├── </span><span class="file">kospi200_targets.csv</span>  <span class="note"># KOSPI 200 종목 이름/코드 목록</span>
-<span class="line">└── </span><span class="file">NASDAQ100.csv</span>         <span class="note"># NASDAQ 100 종목 이름/티커 목록</span>
+    <style>
+      .folder-grid { display: flex; flex-direction: column; gap: 0.75rem; }
+      .folder-block { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+      .folder-header {
+        display: flex; align-items: center; gap: 0.6rem;
+        padding: 0.65rem 1rem;
+        font-weight: 700; font-size: 0.875rem;
+        background: #1e293b; color: #60a5fa;
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+      }
+      .folder-header .folder-desc {
+        font-weight: 400; font-size: 0.78rem; color: #94a3b8; margin-left: auto;
+      }
+      .folder-files { display: flex; flex-direction: column; }
+      .folder-file {
+        display: grid; grid-template-columns: 200px 1fr;
+        padding: 0.5rem 1rem 0.5rem 2.2rem;
+        font-size: 0.82rem; border-top: 1px solid #f1f5f9;
+        background: white; gap: 1rem; align-items: baseline;
+      }
+      .folder-file:hover { background: #f8fafc; }
+      .folder-file .fname {
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+        font-weight: 600; color: #0f172a;
+      }
+      .folder-file .fname.key { color: var(--primary); }
+      .folder-file .fdesc { color: #64748b; font-size: 0.8rem; }
+      .file-solo {
+        display: grid; grid-template-columns: 200px 1fr;
+        padding: 0.65rem 1rem; gap: 1rem; align-items: baseline;
+        border: 1px solid var(--border); border-radius: 10px;
+        background: white; font-size: 0.82rem;
+      }
+      .file-solo .fname {
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+        font-weight: 600; color: var(--primary);
+      }
+      .file-solo .fdesc { color: #64748b; font-size: 0.8rem; }
+      @media (max-width: 600px) {
+        .folder-file, .file-solo { grid-template-columns: 1fr; }
+      }
+    </style>
+
+    <div class="folder-grid">
+
+      <!-- main.py -->
+      <div class="file-solo">
+        <span class="fname">app/main.py</span>
+        <span class="fdesc">FastAPI 진입점 — POST /chat 엔드포인트, JWT 인증, 입력 검증</span>
+      </div>
+
+      <!-- stock_ref.py -->
+      <div class="file-solo">
+        <span class="fname">app/stock_ref.py</span>
+        <span class="fdesc">공유 CSV 종목 참조 — 이름↔코드 변환, 동의어 650개+ (모든 레이어에서 사용)</span>
+      </div>
+
+      <!-- chatbot/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/chatbot/ <span class="folder-desc">규칙 기반 의도 분류 엔진</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname key">router.py</span><span class="fdesc">정규식으로 15가지 의도 감지, 파라미터 추출</span></div>
+          <div class="folder-file"><span class="fname key">dispatcher.py</span><span class="fdesc">라우팅 상수 + dispatch / try_shortcut / pre_dispatch</span></div>
+          <div class="folder-file"><span class="fname key">handlers.py</span><span class="fdesc">intent별 핸들러 함수 (_handle_*) — 데이터 조회 → 포맷 반환</span></div>
+          <div class="folder-file"><span class="fname">session.py</span><span class="fdesc">세션 히스토리 분석 헬퍼 (직전 tool 감지, 비교 맥락 감지)</span></div>
+        </div>
+      </div>
+
+      <!-- agent/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/agent/ <span class="folder-desc">AI 에이전트 (복잡한 질문 처리)</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname key">llm_agent.py</span><span class="fdesc">Ollama llama3.1:8b ReAct 에이전트, 5개 도구, 대화 맥락 보강</span></div>
+        </div>
+      </div>
+
+      <!-- data/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/data/ <span class="folder-desc">외부 데이터 소스 연동</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname">market.py</span><span class="fdesc">시세, 지수, 환율, 순위 조회 (Spring API)</span></div>
+          <div class="folder-file"><span class="fname">news.py</span><span class="fdesc">시황 요약, 종목 뉴스 (MongoDB)</span></div>
+          <div class="folder-file"><span class="fname">account.py</span><span class="fdesc">잔고, 예수금 (Spring API)</span></div>
+          <div class="folder-file"><span class="fname">portfolio.py</span><span class="fdesc">보유 종목, 수익률, 섹터 분석 (Oracle)</span></div>
+          <div class="folder-file"><span class="fname">trades.py</span><span class="fdesc">거래 내역 조회 (Oracle)</span></div>
+        </div>
+      </div>
+
+      <!-- templates/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/templates/ <span class="folder-desc">응답 텍스트 포맷터</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname">chart_price.py</span><span class="fdesc">종목 시세 카드 포맷</span></div>
+          <div class="folder-file"><span class="fname">stock_compare.py</span><span class="fdesc">종목 간 등락률/등락폭 비교 포맷</span></div>
+          <div class="folder-file"><span class="fname">stock_news.py</span><span class="fdesc">시황 요약 / 종목 뉴스 / 보유 종목 뉴스 포맷</span></div>
+          <div class="folder-file"><span class="fname">portfolio.py</span><span class="fdesc">포트폴리오 요약 및 지표 포커스 포맷</span></div>
+          <div class="folder-file"><span class="fname">trades.py</span><span class="fdesc">거래내역 표 포맷 (최근 / 날짜별 / 종목별)</span></div>
+          <div class="folder-file"><span class="fname">ranking.py</span><span class="fdesc">상승/하락/거래량 순위 포맷</span></div>
+          <div class="folder-file"><span class="fname">index.py</span><span class="fdesc">지수 표 포맷</span></div>
+          <div class="folder-file"><span class="fname">exchange_rate.py</span><span class="fdesc">환율 포맷 (통화별 이모지, 역환산)</span></div>
+          <div class="folder-file"><span class="fname">account.py</span><span class="fdesc">잔고 포맷 (balance_type별)</span></div>
+          <div class="folder-file"><span class="fname">guide.py</span><span class="fdesc">안내 메시지 상수 (_GUIDE / _FALLBACK / _INVEST_ADVICE)</span></div>
+        </div>
+      </div>
+
+      <!-- db/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/db/ <span class="folder-desc">데이터베이스 연결</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname">oracle.py</span><span class="fdesc">Oracle 커넥션 풀 + 종목코드 조회</span></div>
+          <div class="folder-file"><span class="fname">mongo.py</span><span class="fdesc">MongoDB 대화 히스토리 저장/불러오기</span></div>
+        </div>
+      </div>
+
+      <!-- core/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/core/ <span class="folder-desc">기반 설정</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname">auth.py</span><span class="fdesc">JWT 토큰 검증 (Spring API 연동, 30분 캐시)</span></div>
+          <div class="folder-file"><span class="fname">config.py</span><span class="fdesc">환경변수 로드 (.env)</span></div>
+        </div>
+      </div>
+
+      <!-- crawlers/ -->
+      <div class="folder-block">
+        <div class="folder-header">📂 app/crawlers/ <span class="folder-desc">백그라운드 뉴스 수집기 (스레드 실행)</span></div>
+        <div class="folder-files">
+          <div class="folder-file"><span class="fname">scheduled_crawler.py</span><span class="fdesc">KOSPI 200 + NASDAQ 100 종목 뉴스 — 30분마다 수집</span></div>
+          <div class="folder-file"><span class="fname">kosdaq_crawler.py</span><span class="fdesc">한국 시장 마감 요약 — 매일 16:30</span></div>
+          <div class="folder-file"><span class="fname">nasdaq_crawler.py</span><span class="fdesc">미국 시장 프리뷰 — 매일 08:40</span></div>
+        </div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -531,8 +622,8 @@
           <div class="flow-connector"></div>
         </div>
         <div class="flow-body">
-          <h4>의도 보정 (main.py 문맥 검사)</h4>
-          <p>감지된 의도가 문맥상 맞는지 확인합니다. "그 종목", "아까" 같은 대명사, 여러 종목 비교, 종목코드 누락 등이면 AI 에이전트로 전환합니다.</p>
+          <h4>의도 보정 (dispatcher.pre_dispatch)</h4>
+          <p>감지된 의도가 문맥상 맞는지 확인합니다. 보유 종목 비교 → 에이전트, 명시적 종목 2개+ → 비교 템플릿, 매수/매도 추천 질문 → 안내문구, 종목 미지정 → 히스토리 fallback 또는 "종목명을 입력해 주세요" 처리.</p>
         </div>
       </div>
 
@@ -607,6 +698,14 @@
         <div class="intent-ex">예: "현대차 팔아줘", "매도하고 싶어"</div>
       </div>
       <div class="intent-item">
+        <div class="intent-name">invest_advice</div>
+        <div class="intent-ex">예: "삼성전자 팔아야 해?", "지금 살까?" — 매수/매도 추천 불가 안내</div>
+      </div>
+      <div class="intent-item">
+        <div class="intent-name">stock_compare</div>
+        <div class="intent-ex">예: "삼성전자 SK하이닉스 등락률 비교" — 명시적 종목 2개+ 시세 비교</div>
+      </div>
+      <div class="intent-item">
         <div class="intent-name">exchange_order</div>
         <div class="intent-ex">예: "달러로 환전해줘", "원화로 바꾸고 싶어"</div>
       </div>
@@ -674,11 +773,13 @@
           <li>💱 환율 조회</li>
           <li>🏆 상승/하락 랭킹</li>
           <li>📊 종목 시세 (단일 종목)</li>
+          <li>📊 종목 간 등락률 비교 (stock_compare)</li>
           <li>💰 잔고 / 예수금</li>
           <li>📰 종목 뉴스 (단일 종목)</li>
           <li>🌏 시황 요약 (한국/미국)</li>
           <li>🛒 매수/매도 주문 (UI 팝업)</li>
           <li>💱 환전 주문 (UI 팝업)</li>
+          <li>⛔ 매수/매도 추천 질문 → 안내문구</li>
         </ul>
       </div>
       <div class="split-box smart">
@@ -838,7 +939,7 @@
             <td><strong>Oracle DB</strong></td>
             <td><span class="tag blue">관계형 DB</span></td>
             <td>계좌 정보, 종목 마스터, 거래 내역, 포트폴리오 보유 현황</td>
-            <td>portfolio.py, trades.py, resolver.py</td>
+            <td>portfolio.py, trades.py, stock_ref.py</td>
           </tr>
           <tr>
             <td><strong>MongoDB</strong><br><code>sollite.chat_history</code></td>
@@ -971,7 +1072,7 @@
 
     <!-- Synonym example -->
     <h3 class="mt">종목명 동의어 처리</h3>
-    <p class="text-gray">resolver.py에는 650개 이상의 동의어가 등록되어 있어 다양한 표현을 인식합니다.</p>
+    <p class="text-gray">stock_ref.py에는 650개 이상의 동의어가 등록되어 있어 다양한 표현을 인식합니다.</p>
     <div class="grid-4" style="margin-top:0.75rem">
       <div class="card" style="text-align:center;padding:1rem">
         <div style="font-size:1.1rem;font-weight:700;color:var(--gray)">"하닉"</div>

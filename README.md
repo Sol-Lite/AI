@@ -37,8 +37,9 @@ AI/
 │   │
 │   ├── chatbot/                       # 룰 베이스 라우터
 │   │   ├── router.py                  # 키워드 기반 의도 감지 + follow-up 대명사 감지
-│   │   ├── dispatcher.py              # 의도 → 도구 호출 → 템플릿 포맷
-│   │   └── resolver.py                # 종목명 → 종목코드 변환 (CSV 캐싱)
+│   │   ├── dispatcher.py              # 라우팅 상수, dispatch / try_shortcut / pre_dispatch
+│   │   ├── handlers.py                # intent별 핸들러 함수 (_handle_*)
+│   │   └── session.py                 # 세션 히스토리 분석 헬퍼
 │   │
 │   ├── agent/                         # 단일 LLM 에이전트
 │   │   └── llm_agent.py               # ReAct 에이전트 (5개 도구, 대화 기록, 맥락 보강)
@@ -50,6 +51,8 @@ AI/
 │   │   ├── portfolio.py               # 포트폴리오 분석 (Oracle DB + Spring API)
 │   │   └── trades.py                  # 거래내역 조회 (Oracle DB)
 │   │
+│   ├── stock_ref.py                   # 공유 CSV 종목 참조 (이름↔코드, 동의어 650개+)
+│   │
 │   └── templates/                     # 응답 포맷 함수 모음
 │       ├── index.py                   # format_index()
 │       ├── exchange_rate.py           # format_exchange_rate()
@@ -57,10 +60,11 @@ AI/
 │       ├── chart_price.py             # format_chart_price()
 │       ├── account.py                 # format_balance(balance_type)
 │       ├── stock_news.py              # format_korea_summary() / format_us_summary() / format_stock_news() / format_holdings_news()
+│       ├── stock_compare.py           # format_stock_compare() — 종목 간 등락률 비교
 │       ├── order.py                   # format_order()
 │       ├── trades.py                  # format_trades() / format_trades_by_date()
 │       ├── portfolio.py               # format_portfolio() / format_portfolio_analysis(metric_type)
-│       └── guide.py                   # _GUIDE_MESSAGE / _FALLBACK_MESSAGE
+│       └── guide.py                   # _GUIDE_MESSAGE / _FALLBACK_MESSAGE / _INVEST_ADVICE_MESSAGE
 │
 ├── test_scenarios.md                  # 챗봇 기능별 테스트 시나리오
 ├── .env
@@ -80,14 +84,23 @@ AI/
 POST /chat  (main.py)
       │  Authorization: Bearer <JWT>
       │  → get_user_context() : user_id, account_id 추출
-      │  → follow-up 감지: 모호한 질문 + 직전 포트폴리오 tool → intent = unknown
-      │  → 종목 미지정 시세/뉴스 질문 → intent = unknown (agent로 위임)
+      │  → try_shortcut(): 종목명만 입력 + 직전 tool 재사용 → LLM 없이 즉시 반환
       ▼
 router.detect(message)
       │  키워드 패턴 매칭 → intent, params 반환
       │  대명사("그 종목", "아까" 등) 감지 시 → unknown 반환
       ▼
+dispatcher.pre_dispatch(intent, params, message)
+      │  문맥 기반 intent 보정
+      │  · 손익 키워드 + chart_price → unknown
+      │  · 보유 종목 비교 → unknown (agent)
+      │  · 명시적 종목 2개+ 비교 → stock_compare (템플릿)
+      │  · 매수/매도 추천 질문 → invest_advice (안내문구)
+      │  · 종목 미지정 + 명시적 토큰 있음 → stock_not_found
+      │  · 종목 미지정 + follow-up → 히스토리에서 마지막 종목 추출
+      ▼
 dispatcher.dispatch(intent, params, user_context, message)
+      │  → handlers.py의 _handle_* 함수 호출
       │
       ├── greeting        → _GUIDE_MESSAGE (서비스 안내)
       ├── index           → get_market_data("index")           → format_index()
@@ -97,11 +110,13 @@ dispatcher.dispatch(intent, params, user_context, message)
       ├── balance         → get_db_data("balance")             → format_balance(balance_type)
       ├── buy_intent      → type: "order", stock_code 반환
       ├── sell_intent     → type: "order", stock_code 반환
+      ├── invest_advice   → _INVEST_ADVICE_MESSAGE (매수/매도 추천 불가 안내)
       ├── exchange_order  → type: "exchange"
       ├── korea_summary   → get_market_summary("korea")        → format_korea_summary()
       ├── us_summary      → get_market_summary("us")           → format_us_summary()
       ├── market_summary  → korea + us 동시 조회 → 통합 응답
       ├── stock_news      → 섹터 키워드 감지 시 안내 / get_market_summary("stock_news")
+      ├── stock_compare   → 종목별 get_market_data("price") × N → format_stock_compare()
       ├── trades          → 단순 조회 → format_trades()
       │                     날짜 조회 → format_trades_by_date()
       │                     매수/매도 비교 → 직접 계산 (환각 방지)
@@ -249,7 +264,7 @@ ranking_type 키워드 매핑:
 | 섹터 감지     | 바이오/반도체 등 섹터 키워드 → 안내 메시지 반환  |
 | 종목 미지정 시 | intent = unknown → LLM 에이전트 (이전 맥락에서 종목 추출) |
 
-섹터 키워드 (`_SECTOR_KEYWORDS`): 바이오, 반도체, 제약, 화학, 자동차, IT, 금융, 에너지, 헬스케어, 게임, 엔터, 식품, 건설, 철강, 전기차, 배터리, 2차전지, 항공, 조선, 보험, 은행, 유통, 통신, 방산
+섹터 키워드 (`SECTOR_KEYWORDS`, `handlers.py`): 바이오, 반도체, 제약, 화학, 자동차, IT, 금융, 에너지, 헬스케어, 게임, 엔터, 식품, 건설, 철강, 전기차, 배터리, 2차전지, 항공, 조선, 보험, 은행, 유통, 통신, 방산
 
 ---
 
