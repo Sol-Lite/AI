@@ -146,9 +146,11 @@ def try_shortcut(
         return None
 
     # 종목명 외 다른 내용이 있으면 bypass
+    # (종목명 자체가 '이'로 끝나는 경우를 위해 먼저 종목명을 제거한 뒤 조사를 처리)
     msg_expanded = _apply_synonyms(_normalize_message(msg))
-    msg_stripped = _STOCK_ONLY_STRIP_RE.sub("", msg_expanded)
-    if msg_stripped.lower().replace(name.lower(), "").strip():
+    remaining = msg_expanded.lower().replace(name.lower(), "").strip()
+    remaining_stripped = _STOCK_ONLY_STRIP_RE.sub("", remaining)
+    if remaining_stripped.strip():
         return None
 
     try:

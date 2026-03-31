@@ -277,6 +277,8 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
                 "change":        change_str,
                 "change_rate":   f"{r_sign}{rate:.2f}%",
                 "volume":        f"{int(data.get('volume') or 0):,}주",
+                "market_type":   data.get("market_type"),
+                "exchange_code": data.get("exchange_code"),
             }
         return data
 

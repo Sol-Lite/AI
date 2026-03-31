@@ -757,12 +757,15 @@ def resolve_all_from_csv(message: str) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     seen_codes: set[str] = set()
 
+    # 종목명 뒤에 올 수 있는 한글 조사 목록 (랑, 이랑, 이, 가, 은, 는 등)
+    _AFTER_NAME = r'(?:[이가은는을를와과랑나도]|이랑|이나|(?![가-힣a-zA-Z0-9]))'
+
     exp_no_space_lower = re.sub(r'\s+', '', exp_lower)
     all_ko = sorted(kospi_list + nasdaq_ko, key=lambda x: len(x[0]), reverse=True)
     for name, code in all_ko:
         if code in seen_codes:
             continue
-        pat = re.compile(re.escape(name) + r'(?![가-힣a-zA-Z0-9])', re.IGNORECASE)
+        pat = re.compile(re.escape(name) + _AFTER_NAME, re.IGNORECASE)
         if pat.search(expanded) or pat.search(exp_no_space) or pat.search(exp_lower) or pat.search(exp_no_space_lower):
             found.append((code, name))
             seen_codes.add(code)

@@ -353,7 +353,7 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
             tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": "holdings"}, data)
             return {"reply": format_portfolio(data), "_tool_context": tool_ctx, "_is_template": True}
         except Exception:
-            pass
+            return {"reply": "포트폴리오 데이터를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."}
 
     # 보유 종목 뉴스 → 직접 처리
     if _HOLDINGS_NEWS_RE.search(msg):
@@ -529,6 +529,49 @@ def _handle_unknown(params: dict, user_context: dict, message: str) -> dict:
     try:
         from app.agent.llm_agent import ask_general
         reply, tool_ctx = ask_general(user_context, message)
+
+        # 에이전트가 get_stock_price를 단 1회 호출하고
+        # 메시지가 "종목명만" 입력한 단순 조회인 경우에만 카드 형식으로 변환
+        # (비교/복합 질문은 텍스트 응답 유지)
+        _price_results = [
+            m for m in tool_ctx
+            if m.get("role") == "tool" and m.get("name") == "get_stock_price"
+        ]
+        if len(_price_results) == 1:
+            try:
+                import json as _json
+                _pd = _json.loads(_price_results[0]["content"]) if isinstance(_price_results[0]["content"], str) else _price_results[0]["content"]
+                if isinstance(_pd, dict) and not _pd.get("error"):
+                    # LLM이 tool 호출 시 사용한 stock_code 인자도 수집
+                    _lm_arg = ""
+                    for _tc in tool_ctx:
+                        if _tc.get("role") == "assistant" and _tc.get("tool_calls"):
+                            for _call in _tc["tool_calls"]:
+                                if _call.get("function", {}).get("name") == "get_stock_price":
+                                    _lm_arg = str(_call["function"].get("arguments", {}).get("stock_code", ""))
+                                    break
+
+                    # 종목명을 제거한 뒤 의미 있는 내용이 남으면 복합 질문 → 카드 제외
+                    _strip_re = re.compile(r'[?은는이가도요\s!.,]+')
+                    _candidates = {s.lower() for s in (_pd.get("stock_name", ""), _lm_arg) if s}
+                    _is_simple = any(
+                        not _strip_re.sub("", message.lower().replace(c, ""))
+                        for c in _candidates
+                    )
+                    if _is_simple:
+                        return {
+                            "type": "stock_price",
+                            "reply": reply,
+                            "data": {
+                                "stock_code":    _pd.get("stock_code", ""),
+                                "stock_name":    _pd.get("stock_name", ""),
+                                "market_type":   _pd.get("market_type"),
+                                "exchange_code": _pd.get("exchange_code"),
+                            },
+                            "_tool_context": tool_ctx,
+                        }
+            except Exception:
+                pass
 
         # 에이전트가 get_stock_news를 호출한 경우 → 뉴스 없음/오류 모두 템플릿 형식으로 통일
         for _msg in tool_ctx:
