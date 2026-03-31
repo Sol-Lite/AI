@@ -112,6 +112,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"총\s*자산",
         r"현금\s*잔고",
         r"내\s*자산(?!\s*(분석|수익률|현황|비중))",
+        r"보유\s*원화",
+        r"보유\s*달러",
     ],
     # (10) 종목별 뉴스 — chart_price 보다 먼저 검사
     "stock_news": [
