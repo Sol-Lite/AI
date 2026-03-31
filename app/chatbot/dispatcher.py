@@ -192,7 +192,19 @@ def try_shortcut(
         if isinstance(data, dict) and data.get("error"):
             return None
         tool_ctx = _h._get_tool_context("get_stock_price", {"stock_code": code}, data)
-        return {"reply": format_chart_price(data), "_tool_context": tool_ctx, "_is_template": True}
+        card_data = {
+            "stock_code":    data.get("stock_code") or code,
+            "stock_name":    data.get("stock_name", name),
+            "market_type":   data.get("market_type"),
+            "exchange_code": data.get("exchange_code"),
+        }
+        return {
+            "type": "stock_price",
+            "reply": format_chart_price(data),
+            "data": card_data,
+            "_tool_context": tool_ctx,
+            "_is_template": True,
+        }
 
     if last_tool == "get_stock_news":
         data = get_market_summary(type="stock_news", stock_code=code)
