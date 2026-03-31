@@ -242,9 +242,10 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    type: str = "text"          # "text" | "order" | "exchange"
+    type: str = "text"          # "text" | "order" | "exchange" | "stock_price" | "ranking" | "index" | "balance" | "exchange_rate"
     reply: str
     stock_code: str | None = None   # type="order" 일 때 프론트가 현재가 조회에 사용
+    data: dict | None = None        # 카드 렌더링용 구조화 데이터
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -351,4 +352,5 @@ async def chat_endpoint(
         type=result.get("type", "text"),
         reply=result.get("reply", ""),
         stock_code=result.get("stock_code"),
+        data=result.get("data"),
     )
