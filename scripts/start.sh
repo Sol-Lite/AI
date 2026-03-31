@@ -9,7 +9,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=ec2-user
 WorkingDirectory=/opt/fastapi
 EnvironmentFile=/opt/fastapi/.env
 ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
