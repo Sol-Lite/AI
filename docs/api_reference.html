@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API 레퍼런스 — SolLite AI Chat</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-light: #dbeafe;
+      --secondary: #7c3aed;
+      --secondary-light: #ede9fe;
+      --success: #16a34a;
+      --success-light: #dcfce7;
+      --warning: #d97706;
+      --warning-light: #fef3c7;
+      --danger: #dc2626;
+      --danger-light: #fee2e2;
+      --gray: #6b7280;
+      --gray-light: #f3f4f6;
+      --dark: #111827;
+      --border: #e5e7eb;
+      --sidebar-w: 260px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      background: #f8fafc;
+      color: var(--dark);
+      line-height: 1.6;
+      display: flex;
+    }
+
+    /* ── SIDEBAR ── */
+    #sidebar {
+      width: var(--sidebar-w);
+      min-height: 100vh;
+      background: #0f172a;
+      position: fixed;
+      top: 0; left: 0;
+      overflow-y: auto;
+      z-index: 200;
+      padding-bottom: 2rem;
+    }
+    #sidebar .sb-header {
+      padding: 1.25rem 1.25rem 0.75rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    #sidebar .sb-header a {
+      text-decoration: none;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+    #sidebar .sb-header a:hover { color: #94a3b8; }
+    #sidebar .sb-title {
+      font-size: 1rem; font-weight: 700;
+      color: #f1f5f9; margin-bottom: 0.25rem;
+    }
+    #sidebar .sb-group {
+      padding: 0.75rem 0 0.25rem 1.25rem;
+      font-size: 0.7rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: #475569;
+    }
+    #sidebar a.sb-link {
+      display: block;
+      padding: 0.35rem 1.25rem;
+      font-size: 0.8rem;
+      color: #94a3b8;
+      text-decoration: none;
+      transition: background 0.1s, color 0.1s;
+      border-left: 3px solid transparent;
+    }
+    #sidebar a.sb-link:hover { background: #1e293b; color: #f1f5f9; }
+    #sidebar a.sb-link.active { color: #60a5fa; border-left-color: #60a5fa; background: #1e293b; }
+
+    /* ── MAIN ── */
+    #main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      min-width: 0;
+    }
+    .page-header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #7c3aed 100%);
+      color: white;
+      padding: 2.5rem 2.5rem 3rem;
+    }
+    .page-header h1 { font-size: 2rem; font-weight: 800; margin-bottom: 0.4rem; }
+    .page-header p { opacity: 0.85; font-size: 0.95rem; }
+
+    .content { padding: 0 2.5rem 4rem; }
+
+    /* ── MODULE SECTION ── */
+    .module {
+      padding: 2.5rem 0 0;
+      border-top: 2px solid var(--border);
+      margin-top: 2.5rem;
+    }
+    .module:first-child { border-top: none; margin-top: 0; padding-top: 2rem; }
+    .module-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 0.4rem;
+    }
+    .module-path {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 1.1rem; font-weight: 700;
+      color: var(--primary);
+    }
+    .module-badge {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-size: 0.7rem;
+      font-weight: 700;
+    }
+    .badge-chatbot  { background: #dbeafe; color: #1d4ed8; }
+    .badge-data     { background: #dcfce7; color: #15803d; }
+    .badge-template { background: #fef3c7; color: #b45309; }
+    .badge-agent    { background: #ede9fe; color: #6d28d9; }
+    .badge-db       { background: #fee2e2; color: #b91c1c; }
+    .badge-core     { background: #f0fdf4; color: #166534; }
+    .badge-shared   { background: #fdf4ff; color: #7e22ce; }
+    .badge-entry    { background: #eff6ff; color: #1e40af; }
+
+    .module-desc { color: var(--gray); font-size: 0.9rem; margin-bottom: 1.25rem; }
+
+    /* ── FUNCTION TABLE ── */
+    .fn-table-wrap {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+    }
+    .fn-table-title {
+      background: var(--gray-light);
+      padding: 0.55rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--gray);
+      border-bottom: 1px solid var(--border);
+    }
+    table.fn-table {
+      width: 100%; border-collapse: collapse; font-size: 0.82rem;
+    }
+    table.fn-table th {
+      background: #fafafa;
+      padding: 0.6rem 1rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.75rem;
+      color: var(--gray);
+      border-bottom: 1px solid var(--border);
+    }
+    table.fn-table td {
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: top;
+    }
+    table.fn-table tr:last-child td { border-bottom: none; }
+    table.fn-table tr:hover td { background: #fafafa; }
+    .fn-name {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-weight: 600;
+      color: #0f172a;
+      white-space: nowrap;
+    }
+    .fn-name.pub { color: var(--primary); }
+    .fn-params {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.75rem;
+      color: #475569;
+    }
+    .fn-return {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.75rem;
+      color: var(--success);
+      white-space: nowrap;
+    }
+    .fn-desc { color: #374151; font-size: 0.82rem; }
+
+    /* ── CONST TABLE ── */
+    .const-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+    .const-item {
+      background: white;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem 1rem;
+    }
+    .const-name {
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-weight: 600; font-size: 0.8rem;
+      color: var(--secondary);
+    }
+    .const-desc { font-size: 0.8rem; color: var(--gray); margin-top: 0.2rem; }
+
+    /* ── MISC ── */
+    @media (max-width: 768px) {
+      #sidebar { display: none; }
+      #main { margin-left: 0; }
+      .content { padding: 0 1rem 3rem; }
+    }
+    .tag {
+      display: inline-block; border-radius: 999px;
+      padding: 0.15rem 0.55rem; font-size: 0.7rem; font-weight: 600;
+    }
+    .tag.blue   { background: var(--primary-light); color: var(--primary); }
+    .tag.green  { background: var(--success-light); color: var(--success); }
+    .tag.yellow { background: var(--warning-light); color: var(--warning); }
+    .tag.purple { background: var(--secondary-light); color: var(--secondary); }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<nav id="sidebar">
+  <div class="sb-header">
+    <div class="sb-title">SolLite AI Chat</div>
+    <a href="architecture.html">← 구조 설명서로 돌아가기</a>
+  </div>
+
+  <div class="sb-group">진입점</div>
+  <a class="sb-link" href="#main-py">app/main.py</a>
+  <a class="sb-link" href="#stock-ref">app/stock_ref.py</a>
+
+  <div class="sb-group">chatbot/</div>
+  <a class="sb-link" href="#router">router.py</a>
+  <a class="sb-link" href="#dispatcher">dispatcher.py</a>
+  <a class="sb-link" href="#handlers">handlers.py</a>
+  <a class="sb-link" href="#session">session.py</a>
+
+  <div class="sb-group">agent/</div>
+  <a class="sb-link" href="#llm-agent">llm_agent.py</a>
+
+  <div class="sb-group">data/</div>
+  <a class="sb-link" href="#data-market">market.py</a>
+  <a class="sb-link" href="#data-news">news.py</a>
+  <a class="sb-link" href="#data-account">account.py</a>
+  <a class="sb-link" href="#data-portfolio">portfolio.py</a>
+  <a class="sb-link" href="#data-trades">trades.py</a>
+
+  <div class="sb-group">templates/</div>
+  <a class="sb-link" href="#tpl-chart">chart_price.py</a>
+  <a class="sb-link" href="#tpl-compare">stock_compare.py</a>
+  <a class="sb-link" href="#tpl-news">stock_news.py</a>
+  <a class="sb-link" href="#tpl-portfolio">portfolio.py</a>
+  <a class="sb-link" href="#tpl-trades">trades.py</a>
+  <a class="sb-link" href="#tpl-ranking">ranking.py</a>
+  <a class="sb-link" href="#tpl-index">index.py</a>
+  <a class="sb-link" href="#tpl-exchange">exchange_rate.py</a>
+  <a class="sb-link" href="#tpl-account">account.py</a>
+  <a class="sb-link" href="#tpl-guide">guide.py</a>
+
+  <div class="sb-group">db/</div>
+  <a class="sb-link" href="#db-mongo">mongo.py</a>
+  <a class="sb-link" href="#db-oracle">oracle.py</a>
+
+  <div class="sb-group">core/</div>
+  <a class="sb-link" href="#core-auth">auth.py</a>
+  <a class="sb-link" href="#core-config">config.py</a>
+</nav>
+
+<!-- MAIN -->
+<div id="main">
+  <div class="page-header">
+    <h1>API 레퍼런스</h1>
+    <p>모든 모듈의 함수 시그니처, 파라미터, 반환값, 역할을 정리한 내부 문서입니다.</p>
+  </div>
+
+  <div class="content">
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- 진입점 -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="main-py">
+      <div class="module-header">
+        <span class="module-path">app/main.py</span>
+        <span class="module-badge badge-entry">진입점</span>
+      </div>
+      <p class="module-desc">FastAPI 앱 정의. POST /chat 엔드포인트, 서버 생명주기(크롤러 시작/종료), 입력 검증 로직을 담당합니다.</p>
+
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">ChatRequest</span><div class="const-desc">Pydantic 모델 — message: str</div></div>
+        <div class="const-item"><span class="const-name">ChatResponse</span><div class="const-desc">Pydantic 모델 — type, reply, stock_code, data</div></div>
+        <div class="const-item"><span class="const-name">_JAMO_RE</span><div class="const-desc">미완성 한글 자모 감지 정규식</div></div>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name">lifespan</span></td>
+              <td><span class="fn-params">app: FastAPI</span></td>
+              <td><span class="fn-return">AsyncContextManager</span></td>
+              <td class="fn-desc">서버 시작 시 크롤러 스레드 시작, 종료 시 정상 중단</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">chat_endpoint</span></td>
+              <td><span class="fn-params">req: ChatRequest<br>user_context: dict</span></td>
+              <td><span class="fn-return">ChatResponse</span></td>
+              <td class="fn-desc">① 자모 검사 → ② try_shortcut → ③ detect → ④ pre_dispatch → ⑤ dispatch → ⑥ MongoDB 저장 → 응답 반환</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="stock-ref">
+      <div class="module-header">
+        <span class="module-path">app/stock_ref.py</span>
+        <span class="module-badge badge-shared">공유 유틸</span>
+      </div>
+      <p class="module-desc">CSV 기반 종목 참조 모듈. 동의어 650개+, KOSPI 200 + NASDAQ 100 종목명↔코드 변환을 제공합니다. chatbot / data / agent 모든 레이어에서 사용합니다.</p>
+
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">_SYNONYMS</span><div class="const-desc">종목명 동의어 딕셔너리 (650개+) — "하닉" → "SK하이닉스"</div></div>
+        <div class="const-item"><span class="const-name">_EN_SUFFIX</span><div class="const-desc">해외 종목 접미사 목록 (.O, .K 등)</div></div>
+        <div class="const-item"><span class="const-name">_PARTICLE_LOOKAHEAD</span><div class="const-desc">조사 제거용 lookahead 패턴</div></div>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">_normalize_message</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">영문↔한글 경계 공백 제거, 대소문자 정규화</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">_apply_synonyms</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">동의어를 정식 종목명으로 치환 ("삼전" → "삼성전자")</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">resolve_from_csv</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">tuple[str|None, str|None]</span></td>
+              <td class="fn-desc">메시지에서 종목명을 찾아 (종목코드, 종목명) 반환. 미발견 시 (None, None)</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">resolve_all_from_csv</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">list[tuple[str, str]]</span></td>
+              <td class="fn-desc">메시지에서 여러 종목을 모두 찾아 [(코드, 이름), ...] 반환</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">resolve_name_from_code</span></td>
+              <td><span class="fn-params">stock_code: str</span></td>
+              <td><span class="fn-return">str | None</span></td>
+              <td class="fn-desc">종목코드 → 한글 종목명 역변환 ("005930" → "삼성전자")</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- chatbot/ -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="router">
+      <div class="module-header">
+        <span class="module-path">app/chatbot/router.py</span>
+        <span class="module-badge badge-chatbot">chatbot</span>
+      </div>
+      <p class="module-desc">정규식 패턴 매칭으로 사용자 메시지에서 의도(intent)와 파라미터를 추출합니다. 15개 의도를 우선순위 순서로 검사합니다.</p>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">공개 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">detect</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">tuple[str, dict]</span></td>
+              <td class="fn-desc">메시지 → (intent, params). follow-up 대명사 감지 시 intent="unknown" 반환</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">내부 헬퍼</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name">_is_followup</span></td>
+              <td><span class="fn-params">msg: str</span></td>
+              <td><span class="fn-return">bool</span></td>
+              <td class="fn-desc">"그 종목", "아까", "방금" 등 이전 대화 참조 여부 판정</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_extract_stock</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">str | None</span></td>
+              <td class="fn-desc">① 6자리 숫자 → ② CSV 종목명 → ③ 영문 티커 순으로 종목코드 추출</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_extract_ranking_type</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">거래량 / 거래대금 / 상승 / 하락 / 시가총액 중 해당 유형 반환</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_extract_currency_pair</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">달러/엔화/유로/파운드 키워드로 통화 쌍 코드(USDKRW 등) 반환</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_extract_balance_type</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">"현금", "예수금" 등 키워드로 잔고 조회 유형 반환</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_extract_params</span></td>
+              <td><span class="fn-params">intent: str, message: str</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">intent별 파라미터 추출 — 종목코드, 순위유형, 통화쌍 등</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="dispatcher">
+      <div class="module-header">
+        <span class="module-path">app/chatbot/dispatcher.py</span>
+        <span class="module-badge badge-chatbot">chatbot</span>
+      </div>
+      <p class="module-desc">라우팅 로직 전담 모듈. intent → handlers.py의 _handle_* 함수 매핑, 문맥 기반 intent 보정(pre_dispatch), 단축키 처리(try_shortcut)를 담당합니다.</p>
+
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">INTENT_KW</span><div class="const-desc">명확한 의도 키워드 집합 — shortcut bypass 판단에 사용</div></div>
+        <div class="const-item"><span class="const-name">_COMPARISON_RE</span><div class="const-desc">종목 비교 질문 감지 패턴</div></div>
+        <div class="const-item"><span class="const-name">_PORTFOLIO_COMPARISON_RE</span><div class="const-desc">보유 종목 비교 패턴 — 항상 agent로 라우팅</div></div>
+        <div class="const-item"><span class="const-name">_PORTFOLIO_KW_RE</span><div class="const-desc">손익/평가액 등 포트폴리오 필수 키워드</div></div>
+        <div class="const-item"><span class="const-name">_INVEST_ADVICE_RE</span><div class="const-desc">매수/매도 추천 요청 감지 패턴</div></div>
+        <div class="const-item"><span class="const-name">_AMBIGUOUS_RE</span><div class="const-desc">문맥 없이 모호한 질문 감지 패턴</div></div>
+        <div class="const-item"><span class="const-name">_HANDLERS</span><div class="const-desc">intent → _handle_* 함수 매핑 테이블 (dict)</div></div>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">공개 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">dispatch</span></td>
+              <td><span class="fn-params">intent: str<br>params: dict<br>user_context: dict<br>original_message: str</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">_HANDLERS 테이블에서 핸들러를 찾아 호출. 미등록 intent는 _handle_unknown으로 처리</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">try_shortcut</span></td>
+              <td><span class="fn-params">message: str<br>account_id: str<br>session_since: float|None</span></td>
+              <td><span class="fn-return">dict | None</span></td>
+              <td class="fn-desc">종목명만 입력 + 직전 tool이 price/news/order인 경우 LLM 없이 즉시 재실행. 해당 없으면 None 반환</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name pub">pre_dispatch</span></td>
+              <td><span class="fn-params">intent: str<br>params: dict<br>message: str<br>account_id: str<br>session_since: float|None</span></td>
+              <td><span class="fn-return">tuple[str, dict]</span></td>
+              <td class="fn-desc">router.detect() 결과를 문맥 기반으로 보정. 보정된 (intent, params) 반환</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">내부 헬퍼</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name">_has_explicit_stock_token</span></td>
+              <td><span class="fn-params">message: str</span></td>
+              <td><span class="fn-return">bool</span></td>
+              <td class="fn-desc">intent 키워드 제거 후 종목처럼 보이는 토큰이 남아 있으면 True — resolve 실패한 명시적 종목 입력 감지</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="handlers">
+      <div class="module-header">
+        <span class="module-path">app/chatbot/handlers.py</span>
+        <span class="module-badge badge-chatbot">chatbot</span>
+      </div>
+      <p class="module-desc">intent별 핸들러 함수 모음. 모든 _handle_* 함수는 (params, user_context, message) → dict 시그니처를 따릅니다. 반환 dict의 주요 키: reply, type, data, _tool_context, _is_template.</p>
+
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">SECTOR_KEYWORDS</span><div class="const-desc">섹터/테마 키워드 집합 — 바이오, 반도체, IT 등 23개</div></div>
+        <div class="const-item"><span class="const-name">_SECTOR_GUIDE</span><div class="const-desc">섹터 질문 안내 문구 상수</div></div>
+        <div class="const-item"><span class="const-name">_METRIC_KEYWORDS</span><div class="const-desc">포트폴리오 지표 유형 키워드 매핑 (returns/sector/risk/stats/holdings)</div></div>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">유틸리티</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name">_get_tool_context</span></td>
+              <td><span class="fn-params">tool_name: str<br>args: dict<br>result: dict</span></td>
+              <td><span class="fn-return">list[dict]</span></td>
+              <td class="fn-desc">템플릿 경로용 [assistant tool_call, tool result] 메시지 쌍 생성. MongoDB 저장 시 사용</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_resolve_code</span></td>
+              <td><span class="fn-params">stock_code: str</span></td>
+              <td><span class="fn-return">str | None</span></td>
+              <td class="fn-desc">코드 형식이면 그대로 반환, 아니면 Oracle DB에서 종목명으로 조회</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_detect_metric_type</span></td>
+              <td><span class="fn-params">msg: str</span></td>
+              <td><span class="fn-return">str | None</span></td>
+              <td class="fn-desc">메시지에서 포트폴리오 지표 유형 감지 → "returns" | "sector" | "risk" | "stats" | "holdings" | None</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">핸들러 함수 — (params: dict, user_context: dict, message: str) → dict</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>주요 params 키</th><th>반환 type 값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name">_handle_greeting</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">_GUIDE_MESSAGE 반환</td></tr>
+            <tr><td><span class="fn-name">_handle_index</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"index"</span></td><td class="fn-desc">Spring API에서 지수 조회 → format_index()</td></tr>
+            <tr><td><span class="fn-name">_handle_exchange_rate</span></td><td><span class="fn-params">currency_pair</span></td><td><span class="fn-return">"exchange_rate"</span></td><td class="fn-desc">환율 조회 → format_exchange_rate()</td></tr>
+            <tr><td><span class="fn-name">_handle_ranking</span></td><td><span class="fn-params">ranking_type, market</span></td><td><span class="fn-return">"ranking"</span></td><td class="fn-desc">주식 순위 조회 → format_ranking()</td></tr>
+            <tr><td><span class="fn-name">_handle_chart_price</span></td><td><span class="fn-params">stock_code<br>stock_not_found<br>multi_stock</span></td><td><span class="fn-return">"stock_price"</span></td><td class="fn-desc">종목 시세 조회 → format_chart_price(). stock_not_found=True면 입력 요청 반환. <strong>종목코드(005930)가 아닌 종목명(삼성전자)으로 입력해야 인식됨</strong></td></tr>
+            <tr><td><span class="fn-name">_handle_balance</span></td><td><span class="fn-params">balance_type</span></td><td><span class="fn-return">"balance"</span></td><td class="fn-desc">잔고 조회 → format_balance()</td></tr>
+            <tr><td><span class="fn-name">_handle_buy_intent</span></td><td><span class="fn-params">stock_code, stock_name<br>multi_stock</span></td><td><span class="fn-return">"order"</span></td><td class="fn-desc">매수 주문 UI 활성화. stock_code + 종목명 반환. <strong>종목코드가 아닌 종목명으로 입력해야 인식됨</strong></td></tr>
+            <tr><td><span class="fn-name">_handle_sell_intent</span></td><td><span class="fn-params">stock_code, stock_name<br>multi_stock</span></td><td><span class="fn-return">"order"</span></td><td class="fn-desc">매도 주문 UI 활성화. stock_code + 종목명 반환. <strong>종목코드가 아닌 종목명으로 입력해야 인식됨</strong></td></tr>
+            <tr><td><span class="fn-name">_handle_exchange_order</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"exchange"</span></td><td class="fn-desc">환전 UI 활성화</td></tr>
+            <tr><td><span class="fn-name">_handle_market_summary</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">한국 + 미국 시황 동시 조회 → 통합 텍스트</td></tr>
+            <tr><td><span class="fn-name">_handle_korea_summary</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"market_overview"</span></td><td class="fn-desc">한국 시황 조회 → format_korea_summary()</td></tr>
+            <tr><td><span class="fn-name">_handle_us_summary</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"market_overview"</span></td><td class="fn-desc">미국 시황 조회 → format_us_summary()</td></tr>
+            <tr><td><span class="fn-name">_handle_stock_news</span></td><td><span class="fn-params">stock_code, stock_codes<br>stock_not_found</span></td><td><span class="fn-return">"stock_news"</span></td><td class="fn-desc">단일/복수 종목 뉴스 조회. 섹터 키워드면 안내 반환</td></tr>
+            <tr><td><span class="fn-name">_handle_portfolio</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">단순 조회 → 템플릿 / 지표별 → 포커스 분석 / 복합 → agent</td></tr>
+            <tr><td><span class="fn-name">_handle_trades</span></td><td><span class="fn-params">stock_code</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">최근 / 날짜별 / 종목별 거래내역 조회. 복잡한 질문은 agent</td></tr>
+            <tr><td><span class="fn-name">_handle_stock_compare</span></td><td><span class="fn-params">stock_codes: list[tuple]</span></td><td><span class="fn-return">"stock_price"</span></td><td class="fn-desc">2개 이상 종목 시세를 각각 조회 → format_stock_compare()</td></tr>
+            <tr><td><span class="fn-name">_handle_invest_advice</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">_INVEST_ADVICE_MESSAGE 반환 (매수/매도 추천 불가 안내)</td></tr>
+            <tr><td><span class="fn-name">_handle_unknown</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">섹터 키워드 → 안내 / 매수매도 비교 → 직접계산 / 그 외 → agent</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="session">
+      <div class="module-header">
+        <span class="module-path">app/chatbot/session.py</span>
+        <span class="module-badge badge-chatbot">chatbot</span>
+      </div>
+      <p class="module-desc">MongoDB 대화 히스토리를 분석해 세션 내 tool 사용 패턴을 감지합니다. dispatcher.pre_dispatch에서 문맥 기반 라우팅 결정에 사용됩니다.</p>
+
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">_PORTFOLIO_TOOLS</span><div class="const-desc">포트폴리오/거래 도구 집합 {get_portfolio_info, get_trade_history}</div></div>
+        <div class="const-item"><span class="const-name">_PRICE_TOOLS</span><div class="const-desc">가격/뉴스 도구 집합 {get_stock_price, get_stock_news}</div></div>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name">_last_tool_was_portfolio</span></td>
+              <td><span class="fn-params">account_id: str<br>session_since: float|None</span></td>
+              <td><span class="fn-return">bool</span></td>
+              <td class="fn-desc">최근 6턴 히스토리에서 마지막 tool이 portfolio/trades 도구이면 True. 모호한 질문을 agent로 보낼지 결정하는 데 사용</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_has_recent_price_context</span></td>
+              <td><span class="fn-params">account_id: str<br>session_since: float|None</span></td>
+              <td><span class="fn-return">bool</span></td>
+              <td class="fn-desc">최근 8턴에서 price/news tool을 2회 이상 사용했으면 True. 종목 비교 맥락 감지에 사용</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- agent/ -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="llm-agent">
+      <div class="module-header">
+        <span class="module-path">app/agent/llm_agent.py</span>
+        <span class="module-badge badge-agent">agent</span>
+      </div>
+      <p class="module-desc">Ollama llama3.1:8b 기반 ReAct 에이전트. unknown / portfolio 세부 질문 / trades 세부 질문을 처리합니다. 최대 5회 도구 호출 후 자연어 답변을 생성합니다.</p>
+
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">MAX_TURNS</span><div class="const-desc">최대 에이전트 루프 횟수 (5)</div></div>
+        <div class="const-item"><span class="const-name">_TOOLS</span><div class="const-desc">에이전트가 사용할 수 있는 도구 4개 정의 리스트</div></div>
+        <div class="const-item"><span class="const-name">_EN_STOCK_MAP</span><div class="const-desc">영문 종목명 → 한글명 매핑 (에이전트 출력 후처리용)</div></div>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">공개 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">ask_general</span></td>
+              <td><span class="fn-params">user_context: dict<br>user_message: str</span></td>
+              <td><span class="fn-return">tuple[str, list]</span></td>
+              <td class="fn-desc">자연어 질문을 LLM 에이전트로 처리. (reply 텍스트, tool_context 리스트) 반환</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">내부 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name">_enrich_with_context</span></td>
+              <td><span class="fn-params">user_message: str<br>history: list</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">대명사("그 종목") → 직전 종목명 치환, 종목 없는 follow-up → 직전 종목 주입</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_extract_last_stock</span></td>
+              <td><span class="fn-params">history: list</span></td>
+              <td><span class="fn-return">str | None</span></td>
+              <td class="fn-desc">히스토리에서 마지막으로 조회한 종목코드 추출 (tool_calls → assistant 텍스트 순)</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_run_agent</span></td>
+              <td><span class="fn-params">history: list<br>user_message: str<br>account_id: str<br>execute: callable<br>max_turns: int</span></td>
+              <td><span class="fn-return">tuple[str, list]</span></td>
+              <td class="fn-desc">Ollama 호출 루프. tool_call 응답이면 도구 실행 → 결과 추가 → 재호출. text 응답이면 반환</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_fmt_portfolio</span></td>
+              <td><span class="fn-params">info_type: str<br>data: dict</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">포트폴리오 수치를 LLM에 전달 전 포맷된 문자열로 변환 (환각 방지)</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_build_system</span></td>
+              <td><span class="fn-params">—</span></td>
+              <td><span class="fn-return">str</span></td>
+              <td class="fn-desc">LLM 시스템 프롬프트 생성 (한국어, 도구 사용 가이드라인 포함)</td>
+            </tr>
+            <tr>
+              <td><span class="fn-name">_execute</span></td>
+              <td><span class="fn-params">name: str<br>args: dict<br>account_id: str</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">도구 이름으로 실제 data/* 함수 호출. 결과를 포맷 처리 후 반환</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- data/ -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="data-market">
+      <div class="module-header">
+        <span class="module-path">app/data/market.py</span>
+        <span class="module-badge badge-data">data</span>
+      </div>
+      <p class="module-desc">Spring Boot API(localhost:8080)를 통해 시장 데이터를 조회합니다. 국내/미국 주식 시세, 지수, 환율, 순위, 차트 데이터를 제공합니다.</p>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">공개 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">get_market_data</span></td>
+              <td><span class="fn-params">type: str<br>**kwargs</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">type에 따라 적절한 내부 fetch 함수 호출. type: "price" | "daily" | "period_chart" | "ranking" | "exchange" | "index"</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">내부 fetch 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name">_fetch_price</span></td><td><span class="fn-params">stock_code: str, market: str|None</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">국내/미국 현재가 + 당일 OHLCV 조회</td></tr>
+            <tr><td><span class="fn-name">_fetch_US_price</span></td><td><span class="fn-params">stock_code: str</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">미국 주식 시세 — /api/market/foreign-stocks/{code}/price</td></tr>
+            <tr><td><span class="fn-name">_fetch_period_chart</span></td><td><span class="fn-params">stock_code: str, period: str<br>start_date: str, end_date: str|None</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">기간별 차트 데이터 — DAILY/WEEKLY/MONTHLY/YEARLY</td></tr>
+            <tr><td><span class="fn-name">_fetch_ranking</span></td><td><span class="fn-params">ranking_type: str|None, market: str|None</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">주식 순위 조회 — trading-volume / trading-value / rising / falling / market-cap</td></tr>
+            <tr><td><span class="fn-name">_fetch_index</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">전체 지수 조회 (KOSPI, KOSDAQ, NASDAQ 등)</td></tr>
+            <tr><td><span class="fn-name">_fetch_exchange</span></td><td><span class="fn-params">currency_pair: str|None</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">환율 조회. USDKRW는 지수 API 재사용, 나머지는 별도 API</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="data-news">
+      <div class="module-header">
+        <span class="module-path">app/data/news.py</span>
+        <span class="module-badge badge-data">data</span>
+      </div>
+      <p class="module-desc">MongoDB sollite DB에서 시황 요약 및 종목별 뉴스를 조회합니다.</p>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">공개 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">get_market_summary</span></td>
+              <td><span class="fn-params">type: "korea"|"us"|"stock_news"<br>stock_code: str|None</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">type에 따라 한국 시황 / 미국 시황 / 종목 뉴스 반환. stock_news 시 stock_code 필수</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">반환 dict 구조</div>
+        <table class="fn-table">
+          <thead><tr><th>type</th><th>반환 키</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name">"korea" / "us"</span></td><td class="fn-desc">stock_index, summary, published_at</td></tr>
+            <tr><td><span class="fn-name">"stock_news"</span></td><td class="fn-desc">stock_code, stock_name, news: [{title, summary, published_at}]</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="data-account">
+      <div class="module-header">
+        <span class="module-path">app/data/account.py</span>
+        <span class="module-badge badge-data">data</span>
+      </div>
+      <p class="module-desc">Spring API를 통해 사용자 계좌 잔고 정보를 조회합니다. JWT 토큰을 Authorization 헤더로 전달합니다.</p>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">공개 함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="fn-name pub">get_db_data</span></td>
+              <td><span class="fn-params">type: str<br>user_context: dict<br>**kwargs</span></td>
+              <td><span class="fn-return">dict</span></td>
+              <td class="fn-desc">type="balance" → totalAssets, totalCashKrw, holdings 등 포함 잔고 dict 반환</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="data-portfolio">
+      <div class="module-header">
+        <span class="module-path">app/data/portfolio.py</span>
+        <span class="module-badge badge-data">data</span>
+      </div>
+      <p class="module-desc">Oracle DB에서 포트폴리오 분석 데이터를 조회합니다. 보유 종목, 수익률, 섹터, 리스크, 거래 통계를 각각 또는 종합하여 반환합니다.</p>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값 주요 키</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">get_holdings</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">holdings: list</span></td><td class="fn-desc">현재 보유 종목 목록 (stock_code, stock_name, quantity, eval_price 등)</td></tr>
+            <tr><td><span class="fn-name pub">get_portfolio_returns</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">daily/1m/3m/6m_return, mdd</span></td><td class="fn-desc">기간별 수익률 및 최대 낙폭(MDD) 반환</td></tr>
+            <tr><td><span class="fn-name pub">get_sector_concentration</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">sectors: list</span></td><td class="fn-desc">섹터별 보유 비중 [{sector, weight}] 반환</td></tr>
+            <tr><td><span class="fn-name pub">get_portfolio_risk</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">risk 지표 dict</span></td><td class="fn-desc">변동성, MDD, 손익 등 리스크 지표 반환</td></tr>
+            <tr><td><span class="fn-name pub">get_trade_stats</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">win_rate, pnl_ratio 등</span></td><td class="fn-desc">승률, 손익비, 거래 수 등 통계 반환</td></tr>
+            <tr><td><span class="fn-name pub">get_portfolio_summary</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">전체 합산 dict</span></td><td class="fn-desc">위 5개 함수 결과를 하나로 합친 포트폴리오 전체 요약 반환</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="data-trades">
+      <div class="module-header">
+        <span class="module-path">app/data/trades.py</span>
+        <span class="module-badge badge-data">data</span>
+      </div>
+      <p class="module-desc">Oracle DB에서 거래내역을 다양한 기준으로 조회합니다.</p>
+
+      <div class="fn-table-wrap">
+        <div class="fn-table-title">함수</div>
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">get_trade_summary</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">buy_count, sell_count, total</span></td><td class="fn-desc">매수/매도 총 횟수 요약</td></tr>
+            <tr><td><span class="fn-name pub">get_trades_template_data</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">trades: list</span></td><td class="fn-desc">최근 거래내역 템플릿 출력용 데이터</td></tr>
+            <tr><td><span class="fn-name pub">get_trades_by_date</span></td><td><span class="fn-params">account_id: str<br>date: str</span></td><td><span class="fn-return">date, trades: list</span></td><td class="fn-desc">특정 날짜의 전체 거래 내역</td></tr>
+            <tr><td><span class="fn-name pub">get_trades_by_stock</span></td><td><span class="fn-params">account_id: str<br>stock_code: str</span></td><td><span class="fn-return">stock_name, trades: list</span></td><td class="fn-desc">특정 종목의 전체 거래 내역</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- templates/ -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="tpl-chart">
+      <div class="module-header">
+        <span class="module-path">app/templates/chart_price.py</span>
+        <span class="module-badge badge-template">template</span>
+      </div>
+      <p class="module-desc">종목 시세 데이터를 대화체 텍스트로 변환합니다.</p>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">format_chart_price</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">현재가, 등락, OHLC, 거래량을 대화체 3줄로 포맷. KRW/USD 자동 구분</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">data 입력 키</span><div class="const-desc">stock_name, current_price, change, change_rate, open, high, low, volume, currency</div></div>
+      </div>
+    </div>
+
+    <div class="module" id="tpl-compare">
+      <div class="module-header">
+        <span class="module-path">app/templates/stock_compare.py</span>
+        <span class="module-badge badge-template">template</span>
+      </div>
+      <p class="module-desc">2개 이상 종목의 등락률/등락폭을 비교하는 텍스트를 생성합니다.</p>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">format_stock_compare</span></td><td><span class="fn-params">stocks: list[dict]</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">종목별 현재가+등락 나열 후 등락률 기준 최고/최저 종목 요약 추가</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="tpl-news">
+      <div class="module-header">
+        <span class="module-path">app/templates/stock_news.py</span>
+        <span class="module-badge badge-template">template</span>
+      </div>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">format_korea_summary</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">한국 시황 요약 텍스트</td></tr>
+            <tr><td><span class="fn-name pub">format_us_summary</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">미국 시황 요약 텍스트</td></tr>
+            <tr><td><span class="fn-name pub">format_stock_news</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">단일 종목 뉴스 3건 텍스트 (뉴스 없으면 안내 문구)</td></tr>
+            <tr><td><span class="fn-name pub">format_holdings_news</span></td><td><span class="fn-params">results: list[dict]</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">보유 종목별 뉴스 1건씩 묶어서 출력</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="tpl-portfolio">
+      <div class="module-header">
+        <span class="module-path">app/templates/portfolio.py</span>
+        <span class="module-badge badge-template">template</span>
+      </div>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">format_portfolio</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">포트폴리오 전체 요약 텍스트 (보유 종목 + 수익률 + 섹터 + 리스크)</td></tr>
+            <tr><td><span class="fn-name pub">format_portfolio_analysis</span></td><td><span class="fn-params">data: dict<br>metric_type: str</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">metric_type별 포커스 뷰 — returns/sector/risk/stats/holdings 중 하나</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="tpl-trades">
+      <div class="module-header">
+        <span class="module-path">app/templates/trades.py</span>
+        <span class="module-badge badge-template">template</span>
+      </div>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">format_trades</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">최근 거래내역 요약 텍스트</td></tr>
+            <tr><td><span class="fn-name pub">format_trades_by_date</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">특정 날짜의 거래내역 텍스트</td></tr>
+            <tr><td><span class="fn-name pub">format_trades_by_stock</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">특정 종목의 전체 거래내역 텍스트</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="tpl-ranking">
+      <div class="module-header"><span class="module-path">app/templates/ranking.py</span><span class="module-badge badge-template">template</span></div>
+      <div class="fn-table-wrap"><table class="fn-table"><thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead><tbody>
+        <tr><td><span class="fn-name pub">format_ranking</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">순위 유형에 따른 상위 종목 텍스트 포맷</td></tr>
+      </tbody></table></div>
+    </div>
+
+    <div class="module" id="tpl-index">
+      <div class="module-header"><span class="module-path">app/templates/index.py</span><span class="module-badge badge-template">template</span></div>
+      <div class="fn-table-wrap"><table class="fn-table"><thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead><tbody>
+        <tr><td><span class="fn-name pub">format_index</span></td><td><span class="fn-params">data, user_message: str|None</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">user_message 키워드로 관련 지수만 필터링 후 텍스트 포맷</td></tr>
+      </tbody></table></div>
+    </div>
+
+    <div class="module" id="tpl-exchange">
+      <div class="module-header"><span class="module-path">app/templates/exchange_rate.py</span><span class="module-badge badge-template">template</span></div>
+      <div class="fn-table-wrap"><table class="fn-table"><thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead><tbody>
+        <tr><td><span class="fn-name pub">format_exchange_rate</span></td><td><span class="fn-params">data: dict</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">통화별 이모지, 역환율, 등락 표시 포함 환율 텍스트</td></tr>
+      </tbody></table></div>
+    </div>
+
+    <div class="module" id="tpl-account">
+      <div class="module-header"><span class="module-path">app/templates/account.py</span><span class="module-badge badge-template">template</span></div>
+      <div class="fn-table-wrap"><table class="fn-table"><thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead><tbody>
+        <tr><td><span class="fn-name pub">format_balance</span></td><td><span class="fn-params">data: dict<br>balance_type: str</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">balance_type별 ("summary" / "cash" / "total_assets") 잔고 대화체 텍스트</td></tr>
+      </tbody></table></div>
+    </div>
+
+    <div class="module" id="tpl-guide">
+      <div class="module-header"><span class="module-path">app/templates/guide.py</span><span class="module-badge badge-template">template</span></div>
+      <p class="module-desc">함수 없음. 안내 문구 상수만 정의합니다.</p>
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">_GUIDE_MESSAGE</span><div class="const-desc">초기 인사 + 서비스 목록 안내</div></div>
+        <div class="const-item"><span class="const-name">_FALLBACK_MESSAGE</span><div class="const-desc">처리 불가 요청 시 서비스 목록 안내</div></div>
+        <div class="const-item"><span class="const-name">_INVEST_ADVICE_MESSAGE</span><div class="const-desc">매수/매도 추천 불가 안내 + 서비스 목록</div></div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- db/ -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="db-mongo">
+      <div class="module-header">
+        <span class="module-path">app/db/mongo.py</span>
+        <span class="module-badge badge-db">db</span>
+      </div>
+      <p class="module-desc">MongoDB Atlas 연결 및 대화 기록 저장/조회를 담당합니다. 한 턴의 모든 메시지(user → tool_calls → tool → assistant)를 단일 document로 저장합니다.</p>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">get_sollite_news_collection</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">Collection</span></td><td class="fn-desc">sollite.news 컬렉션 반환 (시황 요약)</td></tr>
+            <tr><td><span class="fn-name pub">get_sollite_stock_news_collection</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">Collection</span></td><td class="fn-desc">sollite.stock_news 컬렉션 반환 (종목 뉴스)</td></tr>
+            <tr><td><span class="fn-name pub">save_conversation_turn</span></td><td><span class="fn-params">account_id: str<br>messages: list[dict]</span></td><td><span class="fn-return">None</span></td><td class="fn-desc">account_id + timestamp + messages 를 하나의 document로 저장</td></tr>
+            <tr><td><span class="fn-name pub">get_chat_history</span></td><td><span class="fn-params">account_id: str<br>limit: int<br>since: float|None</span></td><td><span class="fn-return">list[dict]</span></td><td class="fn-desc">최근 limit개 턴의 메시지 조회. since(epoch float) 이후 세션만 필터링</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="db-oracle">
+      <div class="module-header">
+        <span class="module-path">app/db/oracle.py</span>
+        <span class="module-badge badge-db">db</span>
+      </div>
+      <p class="module-desc">Oracle DB 연결 풀 관리 및 쿼리 실행 헬퍼. 계좌 정보, 종목 마스터, 거래 내역, 포트폴리오 데이터 조회에 사용됩니다.</p>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">fetch_one</span></td><td><span class="fn-params">query: str<br>params: dict</span></td><td><span class="fn-return">tuple | None</span></td><td class="fn-desc">단건 SELECT 결과 반환</td></tr>
+            <tr><td><span class="fn-name pub">fetch_all</span></td><td><span class="fn-params">query: str<br>params: dict</span></td><td><span class="fn-return">list[tuple]</span></td><td class="fn-desc">다건 SELECT 결과 반환</td></tr>
+            <tr><td><span class="fn-name pub">execute</span></td><td><span class="fn-params">query: str<br>params: dict</span></td><td><span class="fn-return">None</span></td><td class="fn-desc">INSERT / UPDATE / DELETE 실행</td></tr>
+            <tr><td><span class="fn-name pub">resolve_stock_code</span></td><td><span class="fn-params">name: str</span></td><td><span class="fn-return">str | None</span></td><td class="fn-desc">종목명으로 STOCK_CODE 조회 (Oracle instruments 테이블)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════ -->
+    <!-- core/ -->
+    <!-- ══════════════════════════════════════════ -->
+
+    <div class="module" id="core-auth">
+      <div class="module-header">
+        <span class="module-path">app/core/auth.py</span>
+        <span class="module-badge badge-core">core</span>
+      </div>
+      <p class="module-desc">FastAPI Dependency로 사용되는 JWT 인증 모듈. Spring API /api/users/me를 호출해 토큰을 검증하고 30분 메모리 캐시로 중복 요청을 줄입니다.</p>
+      <div class="fn-table-wrap">
+        <table class="fn-table">
+          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
+          <tbody>
+            <tr><td><span class="fn-name pub">get_user_context</span></td><td><span class="fn-params">credentials: HTTPAuthorizationCredentials</span></td><td><span class="fn-return">dict</span></td><td class="fn-desc">Bearer 토큰 → {account_id, user_id, session_since} 반환. 실패 시 401 raise</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="module" id="core-config">
+      <div class="module-header">
+        <span class="module-path">app/core/config.py</span>
+        <span class="module-badge badge-core">core</span>
+      </div>
+      <p class="module-desc">환경변수 로드 및 전역 설정 상수 정의. 함수/클래스 없음.</p>
+      <div class="const-grid">
+        <div class="const-item"><span class="const-name">OLLAMA_BASE_URL</span><div class="const-desc">Ollama 서버 주소 (기본: http://localhost:11434)</div></div>
+        <div class="const-item"><span class="const-name">OLLAMA_MODEL</span><div class="const-desc">사용 모델 (llama3.1:8b)</div></div>
+        <div class="const-item"><span class="const-name">SPRING_BASE_URL</span><div class="const-desc">Spring Boot API 주소 (기본: http://localhost:8080)</div></div>
+        <div class="const-item"><span class="const-name">ORACLE_DSN / ORACLE_USER / ORACLE_PASSWORD</span><div class="const-desc">Oracle DB 접속 정보 (.env에서 로드)</div></div>
+        <div class="const-item"><span class="const-name">MONGO_URI / MONGO_DB</span><div class="const-desc">MongoDB 연결 주소 및 DB명 (.env에서 로드)</div></div>
+        <div class="const-item"><span class="const-name">HTTP_TIMEOUT_SECONDS</span><div class="const-desc">외부 API 호출 타임아웃 (초)</div></div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<script>
+  // 사이드바 active 하이라이트
+  const links = document.querySelectorAll('.sb-link');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const target = document.querySelector('.sb-link[href="#' + e.target.id + '"]');
+        if (target) target.classList.add('active');
+      }
+    });
+  }, { threshold: 0.3 });
+  document.querySelectorAll('.module[id]').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
