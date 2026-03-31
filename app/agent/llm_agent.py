@@ -255,16 +255,26 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
         data = get_market_data(type="price", stock_code=stock_code)
         # LLM 숫자 환각 방지: 원시 숫자 제거 후 포맷된 문자열만 전달
         if isinstance(data, dict) and "current_price" in data:
-            price  = int(data.get("current_price") or 0)
-            change = int(data.get("change") or 0)
+            is_usd = data.get("currency", "KRW") == "USD"
             rate   = float(data.get("change_rate") or 0.0)
-            c_sign = "+" if change >= 0 else ""
-            r_sign = "+" if rate   >= 0 else ""
+            r_sign = "+" if rate >= 0 else ""
+            if is_usd:
+                price  = float(data.get("current_price") or 0)
+                change = float(data.get("change") or 0)
+                c_sign = "+" if change >= 0 else ""
+                price_str  = f"${price:,.2f}"
+                change_str = f"{c_sign}${abs(change):,.2f}"
+            else:
+                price  = int(data.get("current_price") or 0)
+                change = int(data.get("change") or 0)
+                c_sign = "+" if change >= 0 else ""
+                price_str  = f"{price:,}원"
+                change_str = f"{c_sign}{change:,}원"
             return {
                 "stock_name":    data.get("stock_name", stock_code),
                 "stock_code":    data.get("stock_code", stock_code),
-                "current_price": f"{price:,}원",
-                "change":        f"{c_sign}{change:,}원",
+                "current_price": price_str,
+                "change":        change_str,
                 "change_rate":   f"{r_sign}{rate:.2f}%",
                 "volume":        f"{int(data.get('volume') or 0):,}주",
             }
