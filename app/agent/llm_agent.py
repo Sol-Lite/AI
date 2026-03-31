@@ -14,10 +14,14 @@
     4. 최종 content 반환
 """
 import json
+import logging
 import re
+import time
 import httpx
 from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
 from app.templates.guide import _FALLBACK_MESSAGE, _API_ERROR_MESSAGE
+
+logger = logging.getLogger("chatbot.agent")
 
 MAX_TURNS = 5
 
@@ -524,7 +528,7 @@ def _run_agent(
     turn_start = len(messages)  # tool 메시지가 추가되기 시작하는 인덱스
 
     with httpx.Client(timeout=120) as client:
-        for _ in range(MAX_TURNS):
+        for turn_idx in range(MAX_TURNS):
             payload = {
                 "model":    OLLAMA_MODEL,
                 "messages": messages,
@@ -532,12 +536,17 @@ def _run_agent(
                 "stream":   False,
                 "options":  {"temperature": 0},
             }
+            _llm_start = time.time()
+            logger.info("LLM 호출 시작 (turn=%d, model=%s)", turn_idx + 1, OLLAMA_MODEL)
             try:
                 resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
                 resp.raise_for_status()
+                logger.info("LLM 응답 수신 (turn=%d, %.2fs)", turn_idx + 1, time.time() - _llm_start)
             except httpx.TimeoutException:
+                logger.error("LLM 타임아웃 (turn=%d, %.2fs 초과)", turn_idx + 1, time.time() - _llm_start)
                 return _API_ERROR_MESSAGE, []
             except Exception:
+                logger.exception("LLM 호출 오류 (turn=%d)", turn_idx + 1)
                 return _API_ERROR_MESSAGE, []
 
             data       = resp.json()
@@ -555,6 +564,7 @@ def _run_agent(
                     tool_calls = [synthetic]
                 else:
                     intermediate = messages[turn_start:]
+                    logger.info("LLM 최종 응답 (turn=%d)", turn_idx + 1)
                     return content or _FALLBACK_MESSAGE, intermediate
 
             messages.append({"role": "assistant", "tool_calls": tool_calls})
@@ -567,15 +577,18 @@ def _run_agent(
                         args = json.loads(args)
                     except json.JSONDecodeError:
                         args = {}
+                logger.info("툴 호출: %s(%s)", name, args)
                 try:
                     tool_result = execute_tool(name, args)
                 except Exception as e:
+                    logger.exception("툴 실행 오류: %s", name)
                     tool_result = json.dumps({"error": str(e)}, ensure_ascii=False)
 
                 # 에러 결과를 LLM으로 다시 보내면 환각 발생 → 즉시 종료
                 try:
                     _parsed = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
                     if isinstance(_parsed, dict) and _parsed.get("error"):
+                        logger.warning("툴 에러 응답: %s → %s", name, _parsed.get("error"))
                         intermediate = messages[turn_start:]
                         if name == "get_stock_news":
                             stock_name = args.get("stock_code", "해당 종목")
@@ -613,6 +626,7 @@ def _run_agent(
 
                 messages.append({"role": "tool", "name": name, "content": tool_result})
 
+    logger.warning("MAX_TURNS(%d) 초과 — fallback 반환", MAX_TURNS)
     return _FALLBACK_MESSAGE, []
 
 
