@@ -28,13 +28,13 @@ jobs:
             --exclude ".git/*" \
             --exclude ".env" \
             --exclude "*.egg-info/*"
-          aws s3 cp ai-app.zip s3://shinhansec-sol-lite-deploy/ai/ai-app.zip
+          aws s3 cp ai-app.zip s3://sollite-codedeploy-artifacts/ai/ai-app.zip
 
       - name: CodeDeploy 배포
         run: |
           aws deploy create-deployment \
             --application-name SolLite-AI \
-            --deployment-group-name SolLite-AI-Group \
-            --s3-location bucket=shinhansec-sol-lite-deploy,bundleType=zip,key=ai/ai-app.zip \
+            --deployment-group-name SolLite-AI-DG \
+            --s3-location bucket=sollite-codedeploy-artifacts,bundleType=zip,key=ai/ai-app.zip \
             --deployment-config-name CodeDeployDefault.OneAtATime \
             --description "Deploy from GitHub Actions (${GITHUB_SHA::7})"
