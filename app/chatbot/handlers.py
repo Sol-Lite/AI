@@ -317,8 +317,8 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
         return {"type": "stock_news", "reply": format_holdings_news(results), "_tool_context": tool_ctx, "_is_template": True}
 
     # 섹터/테마 키워드 질문이면 안내 메시지 반환
-    if not stock_code or stock_code.lower() in _SECTOR_KEYWORDS:
-        if any(kw in message.lower() for kw in _SECTOR_KEYWORDS):
+    if not stock_code or stock_code.lower() in SECTOR_KEYWORDS:
+        if any(kw in message.lower() for kw in SECTOR_KEYWORDS):
             return {"reply": _SECTOR_GUIDE}
 
     if not stock_code:
