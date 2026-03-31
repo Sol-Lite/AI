@@ -187,6 +187,14 @@ def _fmt_portfolio(info_type: str, data: dict) -> dict:
             if s and isinstance(s, dict):
                 s["return_rate"]    = _fmt_rate(s.get("return_rate", 0))
                 s["unrealized_pnl"] = _fmt_krw(s.get("unrealized_pnl", 0))
+
+        # best_stock 수익률이 음수인 경우 → 해석 힌트 추가 (LLM 오표현 방지)
+        best = data.get("best_stock", {})
+        if best and str(best.get("return_rate", "")).startswith("-"):
+            data["_note"] = (
+                "모든 보유 종목의 수익률이 음수(손실)입니다. "
+                "best_stock은 '가장 많이 올랐다'가 아니라 '손실이 가장 적다'는 의미입니다."
+            )
         return data
 
     if info_type == "stats":
@@ -438,6 +446,9 @@ def _build_system() -> str:
 - "양호", "우수", "위험", "안정적" 등 주관적 평가 표현 금지
 - 투자 의견, 매수/매도 권유, 포트폴리오 조정 권유 금지
 - 수치 간 비교는 허용. 예) "A 종목이 B 종목보다 수익률이 높습니다."
+- best_stock의 return_rate가 음수(-)이면 "가장 많이 올랐다"가 아니라 "손실이 가장 적다"로 표현하세요.
+  예) best_stock 수익률 -0.32% → "현재 모든 종목이 손실 중이며, 그 중 미래에셋증권이 -0.32%로 손실이 가장 적어요."
+- worst_stock의 return_rate가 양수(+)이면 "가장 많이 내렸다"가 아니라 "수익이 가장 적다"로 표현하세요.
 
 출력 금지:
 - "volatility", "mdd", "best_stock", "unrealized_pnl" 등 영어 변수명
@@ -553,8 +564,9 @@ def _run_agent(
                 except Exception:
                     pass
 
-                # get_portfolio_info 결과에 특정 종목이 없으면 즉시 "미보유" 반환
-                if name == "get_portfolio_info":
+                # get_portfolio_info(holdings/risk) 결과에 특정 종목이 없으면 즉시 "미보유" 반환
+                # returns/sector/stats 는 종목별 데이터가 없으므로 체크 제외
+                if name == "get_portfolio_info" and args.get("info_type") in ("holdings", "risk"):
                     try:
                         _pf = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
                         from app.chatbot.resolver import resolve_from_csv, _normalize_message as _nm

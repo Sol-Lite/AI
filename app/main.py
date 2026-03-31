@@ -60,6 +60,72 @@ _INTENT_KW = {
 _SHORTCUT_TOOLS = {"get_stock_price", "get_stock_news"}
 
 
+def _try_comparison_shortcut(message: str, account_id: str, session_since: float | None = None) -> dict | None:
+    """
+    이전에 조회한 종목들의 가격 비교 질문을 agent 없이 직접 계산합니다.
+
+    예) 삼성전자/현대차 조회 후 "두 종목 중 많이 오른 건?" → 직접 비교 후 반환
+    """
+    if not _COMPARISON_RE.search(message):
+        return None
+
+    # 현재 메시지에 종목명이 2개 이상 명시된 경우 → agent가 직접 조회해야 하므로 bypass
+    try:
+        from app.chatbot.resolver import resolve_all_from_csv, _normalize_message as _nm2
+        if len(resolve_all_from_csv(_nm2(message))) >= 2:
+            return None
+    except Exception:
+        pass
+
+    try:
+        import json as _json
+        from app.db.mongo import get_chat_history
+        history = get_chat_history(account_id, limit=10, since=session_since)
+    except Exception:
+        return None
+
+    # 가격 데이터 수집
+    price_items: list[dict] = []
+    seen: set[str] = set()
+    for msg in history:
+        if msg.get("role") != "tool" or msg.get("name") != "get_stock_price":
+            continue
+        try:
+            data = _json.loads(msg["content"]) if isinstance(msg["content"], str) else msg["content"]
+        except Exception:
+            continue
+        name = data.get("stock_name", "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        rate = data.get("change_rate", None)
+        if rate is None:
+            continue
+        price_items.append({"name": name, "rate": float(rate)})
+
+    if len(price_items) < 2:
+        return None
+
+    # 등락률 기준 정렬
+    sorted_items = sorted(price_items, key=lambda x: x["rate"], reverse=True)
+    top = sorted_items[0]
+    sign = "+" if top["rate"] >= 0 else ""
+    rate_str = f"{sign}{top['rate']:.2f}%"
+
+    others = ", ".join(
+        f"{it['name']} {'+' if it['rate'] >= 0 else ''}{it['rate']:.2f}%"
+        for it in sorted_items[1:]
+    )
+
+    if all(it["rate"] == sorted_items[0]["rate"] for it in sorted_items):
+        names = ", ".join(it["name"] for it in sorted_items)
+        reply = f"조회한 종목 모두 등락률이 {rate_str}로 동일해요. ({names})"
+    else:
+        reply = f"조회한 종목 중 **{top['name']}**이 {rate_str}로 가장 많이 {'올랐어요' if top['rate'] >= 0 else '내렸어요'}. (비교: {others})"
+
+    return {"reply": reply}
+
+
 def _try_stock_shortcut(message: str, account_id: str, session_since: float | None = None) -> dict | None:
     """
     종목명만 있는 짧은 메시지 + 직전 응답이 price/news/order인 경우
@@ -264,7 +330,8 @@ async def chat_endpoint(
     if shortcut:
         result = shortcut
     else:
-        result = None
+        # 가격 비교 질문 → 이전 조회 데이터로 직접 계산 (agent 환각 방지)
+        result = _try_comparison_shortcut(req.message, account_id, session_since)
 
     if result is None:
         intent, params = detect(req.message)
@@ -282,9 +349,17 @@ async def chat_endpoint(
         if intent in ("ranking", "chart_price", "unknown") and _PORTFOLIO_COMPARISON_RE.search(req.message):
             intent = "unknown"
 
-        # 종목 비교 질문 + 직전에 가격 조회 2회 이상 → agent로 위임
+        # 종목 비교 질문 처리
         if intent in ("ranking", "chart_price", "unknown") and _COMPARISON_RE.search(req.message):
-            if _has_recent_price_context(account_id, session_since):
+            # 메시지에 종목명이 2개 이상 명시된 경우 → 항상 agent로 (시장 순위 오라우팅 방지)
+            try:
+                from app.chatbot.resolver import resolve_all_from_csv, _normalize_message as _nm3
+                if len(resolve_all_from_csv(_nm3(req.message))) >= 2:
+                    intent = "unknown"
+            except Exception:
+                pass
+            # 직전에 가격 조회 2회 이상 → agent로 위임
+            if intent != "unknown" and _has_recent_price_context(account_id, session_since):
                 intent = "unknown"
 
         # 시세/뉴스 intent인데 종목 미지정 → 이번 세션 맥락에서 종목 추출 시도

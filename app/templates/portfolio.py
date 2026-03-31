@@ -17,6 +17,25 @@ def _icon(v: float) -> str:
     return "🔺" if v > 0 else "🔻" if v < 0 else "➖"
 
 
+def _stock_label(stock: dict) -> tuple[str, str]:
+    """best_stock/worst_stock 의 수익률 부호에 따라 (라벨, 아이콘) 반환"""
+    rate = stock.get("return_rate", stock.get("return", 0))
+    if isinstance(rate, str):
+        is_neg = rate.startswith("-")
+    else:
+        is_neg = float(rate) < 0
+    return ("손실 최소", "🔸") if is_neg else ("최고", "🔺")
+
+
+def _worst_label(stock: dict) -> tuple[str, str]:
+    rate = stock.get("return_rate", stock.get("return", 0))
+    if isinstance(rate, str):
+        is_neg = rate.startswith("-")
+    else:
+        is_neg = float(rate) < 0
+    return ("최저", "🔻") if is_neg else ("수익 최소", "🔸")
+
+
 def format_portfolio(data: dict) -> str:
     unrealized_pnl  = data.get("unrealized_pnl", 0)
     realized_pnl    = data.get("realized_pnl",   0)
@@ -55,9 +74,11 @@ def format_portfolio(data: dict) -> str:
     block.append(f"• 3개월  {_icon(return_3m)} {_pct(return_3m)}")
     block.append(f"• 6개월  {_icon(return_6m)} {_pct(return_6m)}")
     if best_stock:
-        block.append(f"• 최고  🔺 {best_stock['name']}  {_pct(best_stock.get('return_rate', best_stock.get('return', 0)))}")
+        _bl, _bi = _stock_label(best_stock)
+        block.append(f"• {_bl}  {_bi} {best_stock['name']}  {_pct(best_stock.get('return_rate', best_stock.get('return', 0)))}")
     if worst_stock:
-        block.append(f"• 최저  🔻 {worst_stock['name']}  {_pct(worst_stock.get('return_rate', worst_stock.get('return', 0)))}")
+        _wl, _wi = _worst_label(worst_stock)
+        block.append(f"• {_wl}  {_wi} {worst_stock['name']}  {_pct(worst_stock.get('return_rate', worst_stock.get('return', 0)))}")
     sections.append("  \n".join(block))
 
     # ── 포트폴리오 구성 ───────────────────────────────────────────────────────
@@ -103,9 +124,11 @@ def _summary_returns(data: dict) -> str:
     worst = data.get("worst_stock")
     parts = [f"6개월 기준 {_pct(r6)}"]
     if best:
-        parts.append(f"최고 종목 {best['name']} {_pct(best.get('return_rate', best.get('return', 0)))}")
+        _bl, _ = _stock_label(best)
+        parts.append(f"{_bl} 종목 {best['name']} {_pct(best.get('return_rate', best.get('return', 0)))}")
     if worst:
-        parts.append(f"최저 종목 {worst['name']} {_pct(worst.get('return_rate', worst.get('return', 0)))}")
+        _wl, _ = _worst_label(worst)
+        parts.append(f"{_wl} 종목 {worst['name']} {_pct(worst.get('return_rate', worst.get('return', 0)))}")
     return " / ".join(parts) + "입니다."
 
 

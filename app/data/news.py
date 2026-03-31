@@ -120,6 +120,12 @@ def _fetch_stock_news_summary(stock_code: str | None) -> dict:
     )
 
     stock_name = docs[0].get("stock_name") if docs else None
+
+    # stock_name이 없거나 코드/티커 형태인 경우 → CSV에서 한글 종목명 조회
+    if not stock_name or re.match(r'^[A-Z0-9]{1,10}(\.[A-Z0-9]{1,2})?$', stock_name):
+        from app.chatbot.resolver import resolve_name_from_code
+        stock_name = resolve_name_from_code(stock_code) or stock_name or stock_code
+
     news = [
         {
             "title":        doc.get("title"),
