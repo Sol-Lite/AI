@@ -96,7 +96,16 @@ def _call_spring_api(path: str, params: dict | None = None):
         }
 
 # ── price ─────────────────────────────────────────────────────────────────────
+def _is_us_stock(stock_code: str) -> bool:
+    """6자리 숫자가 아니면 해외 주식으로 간주"""
+    return not re.match(r'^\d{6}$', stock_code)
+
+
 def _fetch_price(stock_code: str, market: str | None) -> dict:
+    if _is_us_stock(stock_code):
+        return _fetch_US_price(stock_code)
+
+    # 한국 주식 시세
     price_data = _call_spring_api(
         f"/api/market/stocks/{stock_code}/price",
         {"stockCode": stock_code},
@@ -122,6 +131,30 @@ def _fetch_price(stock_code: str, market: str | None) -> dict:
         "high": daily_data.get("highPrice", 0),
         "low": daily_data.get("lowPrice", 0),
         "volume": price_data.get("volume", 0),
+        "currency": "KRW",
+    }
+
+
+# 미국 주식 시세
+def _fetch_US_price(stock_code: str) -> dict:
+    price_data = _call_spring_api(
+        f"/api/market/foreign-stocks/{stock_code}/price",
+        {"exchcd": "82"},
+    )
+    if price_data.get("error"):
+        return price_data
+
+    return {
+        "stock_name": price_data.get("korname") or stock_code,
+        "stock_code": price_data.get("symbol", stock_code),
+        "current_price": price_data.get("price", 0),
+        "change": price_data.get("diff", 0),
+        "change_rate": price_data.get("rate", 0.0),
+        "open": price_data.get("open", 0),
+        "high": price_data.get("high", 0),
+        "low": price_data.get("low", 0),
+        "volume": price_data.get("volume", 0),
+        "currency": price_data.get("currency", "USD"),
     }
 
 

@@ -20,6 +20,12 @@ def format_chart_price(data: dict) -> str:
     high        = float(data.get("high") or 0)
     low         = float(data.get("low") or 0)
     volume      = int(data.get("volume") or 0)
+    is_usd      = data.get("currency", "KRW") == "USD"
+
+    if is_usd:
+        def _fmt_price(p): return f"${p:,.2f}"
+    else:
+        def _fmt_price(p): return f"{p:,.0f}원"
 
     if change > 0:
         icon   = "🔺"
@@ -34,13 +40,13 @@ def format_chart_price(data: dict) -> str:
     lines = []
 
     # 첫 줄: 현재가
-    lines.append(f"{stock_name} 지금 **{current:,.0f}원**이에요.")
+    lines.append(f"{stock_name} 지금 **{_fmt_price(current)}**이에요.")
 
     # 둘째 줄: 등락 + OHLC
     r_sign = "+" if change_rate > 0 else ""
-    change_str = f"전일보다 {icon} {abs(change):,.0f}원 ({r_sign}{change_rate:.2f}%) {trend}"
+    change_str = f"전일보다 {icon} {_fmt_price(abs(change))} ({r_sign}{change_rate:.2f}%) {trend}"
     if open_price or high or low:
-        ohlc_str = f"오늘 시가 {open_price:,.0f}원 / 고가 {high:,.0f}원 / 저가 {low:,.0f}원이에요"
+        ohlc_str = f"오늘 시가 {_fmt_price(open_price)} / 고가 {_fmt_price(high)} / 저가 {_fmt_price(low)}이에요"
         lines.append(f"{change_str}.  \n{ohlc_str}.")
     else:
         lines.append(f"{change_str}.")
