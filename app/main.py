@@ -47,7 +47,7 @@ from pydantic import BaseModel
 from app.core.auth import get_user_context
 from app.chatbot.router import detect
 from app.chatbot.dispatcher import dispatch
-from app import crawler
+from app import crawlers as crawler
 
 # 조합되지 않은 한글 자모 감지 (오타/IME 미완성 입력)
 _JAMO_RE = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]")
