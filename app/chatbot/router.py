@@ -230,7 +230,7 @@ _PATTERNS: dict[str, list[str]] = {
         r"미국\s*지수",
         r"코스피",
         r"코스닥",
-        r"나스닥",
+        r"나스닥(?!\s*(순위|랭킹|상위|종목|주식))",
         r"s&p",
         r"sp\s*500",
         r"에스앤피",
@@ -446,6 +446,17 @@ def _extract_ranking_type(message: str) -> str:
     return "trading-value"  # 기본값
 
 
+def _extract_ranking_market(message: str) -> str:
+    """ranking 요청의 대상 시장 추출. 해외 키워드 없으면 'domestic'."""
+    if re.search(r"뉴욕|NYSE|nyse|뉴욕\s*증권", message, re.IGNORECASE):
+        return "nyse"
+    if re.search(r"나스닥|NASDAQ|nasdaq|NAS", message, re.IGNORECASE):
+        return "nasdaq"
+    if re.search(r"해외\s*(주식|증시|시장|랭킹|순위)?|미국\s*(주식|증시|시장|랭킹|순위)?|overseas|foreign", message, re.IGNORECASE):
+        return "foreign"
+    return "domestic"
+
+
 def _extract_currency_pair(message: str) -> str:
     if re.search(r"유로|EUR", message, re.IGNORECASE):
         return "EURKRW"
@@ -497,6 +508,7 @@ def _extract_params(intent: str, message: str) -> dict:
     if intent == "ranking":
         return {
             "ranking_type": _extract_ranking_type(message),
+            "market":       _extract_ranking_market(message),
         }
 
     if intent == "exchange_rate":
