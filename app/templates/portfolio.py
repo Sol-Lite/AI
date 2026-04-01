@@ -5,47 +5,38 @@
 _SEP = "━" * 22
 
 
-def _sign(v: float) -> str:
-    return "+" if v >= 0 else ""
+def _sign(v) -> str:
+    return "+" if (v or 0) >= 0 else ""
 
 
-def _pct(v: float) -> str:
-    return f"{_sign(v)}{v:.2f}%"
+def _pct(v) -> str:
+    if v is None:
+        return "데이터 없음"
+    return f"{_sign(v)}{float(v):.2f}%"
 
 
-def _icon(v: float) -> str:
+def _icon(v) -> str:
+    if v is None:
+        return "➖"
     return "🔺" if v > 0 else "🔻" if v < 0 else "➖"
 
 
-def _stock_label(stock: dict) -> tuple[str, str]:
-    """best_stock/worst_stock 의 수익률 부호에 따라 (라벨, 아이콘) 반환"""
-    rate = stock.get("return_rate", stock.get("return", 0))
-    if isinstance(rate, str):
-        is_neg = rate.startswith("-")
-    else:
-        is_neg = float(rate) < 0
-    return ("손실 최소", "🔸") if is_neg else ("최고", "🔺")
 
-
-def _worst_label(stock: dict) -> tuple[str, str]:
+def _return_line(label: str, icon: str, stock: dict) -> str:
     rate = stock.get("return_rate", stock.get("return", 0))
-    if isinstance(rate, str):
-        is_neg = rate.startswith("-")
-    else:
-        is_neg = float(rate) < 0
-    return ("최저", "🔻") if is_neg else ("수익 최소", "🔸")
+    return f"• {label}  {icon} {stock['name']}  {_pct(rate)}"
 
 
 def format_portfolio(data: dict) -> str:
     unrealized_pnl  = data.get("unrealized_pnl", 0)
-    realized_pnl    = data.get("realized_pnl",   0)
-    return_1m       = data.get("return_1m", 0)
-    return_3m       = data.get("return_3m", 0)
-    return_6m       = data.get("return_6m", 0)
-    best_stock      = data.get("best_stock")
-    worst_stock     = data.get("worst_stock")
+    return_1m  = data.get("return_1m")
+    return_3m  = data.get("return_3m")
+    return_6m  = data.get("return_6m")
+    pos_best   = data.get("pos_best")
+    pos_worst  = data.get("pos_worst")
+    neg_worst  = data.get("neg_worst")
+    neg_best   = data.get("neg_best")
 
-    sectors         = data.get("sector_concentration", [])
     stocks          = data.get("stock_concentration",  [])
     domestic_ratio  = data.get("domestic_ratio", 0)
     foreign_ratio   = data.get("foreign_ratio",  0)
@@ -54,42 +45,47 @@ def format_portfolio(data: dict) -> str:
     recovery_needed = data.get("recovery_needed", 0)
     volatility      = data.get("volatility", 0)
     total_trades    = data.get("total_trades", 0)
-    win_count       = data.get("win_count",    0)
-    loss_count      = data.get("loss_count",   0)
-    avg_win         = data.get("avg_win",  0)
-    avg_loss        = data.get("avg_loss", 0)
-    profit_factor   = data.get("profit_factor", 0)
 
     sections = ["**📊 포트폴리오 분석**", _SEP]
 
     # ── 손익 현황 ─────────────────────────────────────────────────────────────
+    prices_incomplete = data.get("prices_incomplete")
     block = ["**💰 손익 현황**"]
-    block.append(f"• 평가손익  {_icon(unrealized_pnl)} {_sign(unrealized_pnl)}{unrealized_pnl:,.0f}원")
-    block.append(f"• 실현손익  {_icon(realized_pnl)} {_sign(realized_pnl)}{realized_pnl:,.0f}원")
+    if prices_incomplete:
+        missing_str = "·".join(prices_incomplete)
+        block.append(f"• 평가손익  ➖ 조회 불가 ({missing_str} 현재가 없음)")
+    elif unrealized_pnl is not None:
+        block.append(f"• 평가손익  {_icon(unrealized_pnl)} {_sign(unrealized_pnl)}{unrealized_pnl:,.0f}원")
+    else:
+        block.append(f"• 평가손익  ➖ 조회 불가")
     sections.append("  \n".join(block))
 
     # ── 기간별 수익률 ─────────────────────────────────────────────────────────
-    block = ["**📈 기간별 수익률**"]
-    block.append(f"• 1개월  {_icon(return_1m)} {_pct(return_1m)}")
-    block.append(f"• 3개월  {_icon(return_3m)} {_pct(return_3m)}")
-    block.append(f"• 6개월  {_icon(return_6m)} {_pct(return_6m)}")
-    if best_stock:
-        _bl, _bi = _stock_label(best_stock)
-        block.append(f"• {_bl}  {_bi} {best_stock['name']}  {_pct(best_stock.get('return_rate', best_stock.get('return', 0)))}")
-    if worst_stock:
-        _wl, _wi = _worst_label(worst_stock)
-        block.append(f"• {_wl}  {_wi} {worst_stock['name']}  {_pct(worst_stock.get('return_rate', worst_stock.get('return', 0)))}")
-    sections.append("  \n".join(block))
+    has_period = any(r is not None for r in [return_1m, return_3m, return_6m])
+    if has_period or pos_best or neg_worst:
+        block = ["**📈 기간별 수익률**"]
+        if return_1m is not None:
+            block.append(f"• 1개월  {_icon(return_1m)} {_pct(return_1m)}")
+        if return_3m is not None:
+            block.append(f"• 3개월  {_icon(return_3m)} {_pct(return_3m)}")
+        if return_6m is not None:
+            block.append(f"• 6개월  {_icon(return_6m)} {_pct(return_6m)}")
+        if pos_best:
+            block.append(_return_line("수익률 최고", "🔺", pos_best))
+        if pos_worst:
+            block.append(_return_line("수익률 최소", "🔺", pos_worst))
+        if neg_worst:
+            block.append(_return_line("손실률 최고", "🔻", neg_worst))
+        if neg_best:
+            block.append(_return_line("손실률 최소", "🔻", neg_best))
+        sections.append("  \n".join(block))
 
     # ── 포트폴리오 구성 ───────────────────────────────────────────────────────
     block = ["**🗂 포트폴리오 구성**"]
     block.append(f"• 국내 {domestic_ratio}%  /  해외 {foreign_ratio}%")
-    if sectors:
-        block.append("• 섹터별 비중")
-        for s in sectors:
-            block.append(f"  　{s['sector']}  {s['weight']}%")
     if stocks:
-        block.append("• 종목별 비중 (상위 5)")
+        label = "• 종목별 비중 (상위 5)" if len(stocks) > 5 else "• 종목별 비중"
+        block.append(label)
         for s in stocks[:5]:
             block.append(f"  　{s['stock']}  {s['weight']}%")
         if len(stocks) > 5:
@@ -104,12 +100,9 @@ def format_portfolio(data: dict) -> str:
     sections.append("  \n".join(block))
 
     # ── 거래 통계 ─────────────────────────────────────────────────────────────
+    sell_count = data.get("sell_count", 0)
     block = ["**🎯 거래 통계**"]
-    block.append(f"• 총 거래  {total_trades}회")
-    block.append(f"• 수익 {win_count}회  /  손실 {loss_count}회")
-    block.append(f"• 평균 수익금  +{avg_win:,.0f}원")
-    block.append(f"• 평균 손실금  -{abs(avg_loss):,.0f}원")
-    block.append(f"• 손익비  {profit_factor}배")
+    block.append(f"• 총 거래  {total_trades}회  (매수 {data.get('buy_count', 0)}회 / 매도 {sell_count}회)")
     sections.append("  \n".join(block))
 
     sections.append(_SEP)
@@ -119,28 +112,18 @@ def format_portfolio(data: dict) -> str:
 # ── 지표별 포커스 분석 ─────────────────────────────────────────────────────────
 
 def _summary_returns(data: dict) -> str:
-    r1, r3, r6 = data.get("return_1m", 0), data.get("return_3m", 0), data.get("return_6m", 0)
-    best  = data.get("best_stock")
-    worst = data.get("worst_stock")
-    parts = [f"6개월 기준 {_pct(r6)}"]
-    if best:
-        _bl, _ = _stock_label(best)
-        parts.append(f"{_bl} 종목 {best['name']} {_pct(best.get('return_rate', best.get('return', 0)))}")
-    if worst:
-        _wl, _ = _worst_label(worst)
-        parts.append(f"{_wl} 종목 {worst['name']} {_pct(worst.get('return_rate', worst.get('return', 0)))}")
-    return " / ".join(parts) + "입니다."
+    r1, r3, r6 = data.get("return_1m"), data.get("return_3m"), data.get("return_6m")
+    pos_best  = data.get("pos_best")
+    neg_worst = data.get("neg_worst")
+    ref   = r6 if r6 is not None else (r3 if r3 is not None else r1)
+    label = "6개월" if r6 is not None else ("3개월" if r3 is not None else "1개월")
+    parts = [f"{label} 기준 {_pct(ref)}"] if ref is not None else []
+    if pos_best:
+        parts.append(f"수익률 최고 {pos_best['name']} {_pct(pos_best.get('return_rate', 0))}")
+    if neg_worst:
+        parts.append(f"손실률 최고 {neg_worst['name']} {_pct(neg_worst.get('return_rate', 0))}")
+    return (" / ".join(parts) + "입니다.") if parts else "기간별 수익률 데이터가 없습니다."
 
-
-def _summary_sector(data: dict) -> str:
-    sectors = data.get("sector_concentration", [])
-    dom     = data.get("domestic_ratio", 0)
-    fore    = data.get("foreign_ratio", 0)
-    top = sectors[0] if sectors else None
-    base = f"국내 {dom}% / 해외 {fore}% 비중"
-    if top:
-        base += f", 상위 섹터는 {top['sector']} {top['weight']}%"
-    return base + "입니다."
 
 
 def _summary_risk(data: dict) -> str:
@@ -154,12 +137,10 @@ def _summary_risk(data: dict) -> str:
 
 
 def _summary_stats(data: dict) -> str:
-    total  = data.get("total_trades", 0)
-    win    = data.get("win_count", 0)
-    sell   = data.get("loss_count", 0) + win
-    rate   = round(win / sell * 100, 1) if sell > 0 else 0.0
-    pf     = data.get("profit_factor", 0)
-    return f"총 {total}회 거래 중 승률 {rate:.1f}%, 손익비 {pf}배입니다."
+    total = data.get("total_trades", 0)
+    buy   = data.get("buy_count",   0)
+    sell  = data.get("sell_count",  0)
+    return f"총 {total}회 거래 (매수 {buy}회 / 매도 {sell}회)입니다."
 
 
 def _summary_holdings(data: dict) -> str:
@@ -174,7 +155,6 @@ def _summary_holdings(data: dict) -> str:
 
 _METRIC_SUMMARY = {
     "returns":  _summary_returns,
-    "sector":   _summary_sector,
     "risk":     _summary_risk,
     "stats":    _summary_stats,
     "holdings": _summary_holdings,
@@ -182,7 +162,6 @@ _METRIC_SUMMARY = {
 
 _METRIC_LABEL = {
     "returns":  "📈 기간별 수익률",
-    "sector":   "🗂 포트폴리오 구성",
     "risk":     "⚠️ 리스크 지표",
     "stats":    "🎯 거래 통계",
     "holdings": "📋 보유 종목",
@@ -198,34 +177,40 @@ def format_portfolio_analysis(data: dict, metric_type: str) -> str:
     sections = [f"**{label}**", _SEP]
 
     if metric_type == "returns":
-        r1 = data.get("return_1m", 0)
-        r3 = data.get("return_3m", 0)
-        r6 = data.get("return_6m", 0)
-        best  = data.get("best_stock")
-        worst = data.get("worst_stock")
+        r1       = data.get("return_1m")
+        r3       = data.get("return_3m")
+        r6       = data.get("return_6m")
+        pos_best  = data.get("pos_best")
+        pos_worst = data.get("pos_worst")
+        neg_worst = data.get("neg_worst")
+        neg_best  = data.get("neg_best")
         block = []
-        block.append(f"• 1개월  {_icon(r1)} {_pct(r1)}")
-        block.append(f"• 3개월  {_icon(r3)} {_pct(r3)}")
-        block.append(f"• 6개월  {_icon(r6)} {_pct(r6)}")
-        if best:
-            block.append(f"• 최고  🔺 {best['name']}  {_pct(best.get('return_rate', best.get('return', 0)))}")
-        if worst:
-            block.append(f"• 최저  🔻 {worst['name']}  {_pct(worst.get('return_rate', worst.get('return', 0)))}")
-        sections.append("  \n".join(block))
+        if r1 is not None:
+            block.append(f"• 1개월  {_icon(r1)} {_pct(r1)}")
+        if r3 is not None:
+            block.append(f"• 3개월  {_icon(r3)} {_pct(r3)}")
+        if r6 is not None:
+            block.append(f"• 6개월  {_icon(r6)} {_pct(r6)}")
+        if pos_best:
+            block.append(_return_line("수익률 최고", "🔺", pos_best))
+        if pos_worst:
+            block.append(_return_line("수익률 최소", "🔺", pos_worst))
+        if neg_worst:
+            block.append(_return_line("손실률 최고", "🔻", neg_worst))
+        if neg_best:
+            block.append(_return_line("손실률 최소", "🔻", neg_best))
+        if block:
+            sections.append("  \n".join(block))
 
     elif metric_type == "sector":
-        sectors        = data.get("sector_concentration", [])
         stocks         = data.get("stock_concentration",  [])
         domestic_ratio = data.get("domestic_ratio", 0)
         foreign_ratio  = data.get("foreign_ratio",  0)
         block = []
         block.append(f"• 국내 {domestic_ratio}%  /  해외 {foreign_ratio}%")
-        if sectors:
-            block.append("• 섹터별 비중")
-            for s in sectors:
-                block.append(f"  　{s['sector']}  {s['weight']}%")
         if stocks:
-            block.append("• 종목별 비중 (상위 5)")
+            label = "• 종목별 비중 (상위 5)" if len(stocks) > 5 else "• 종목별 비중"
+            block.append(label)
             for s in stocks[:5]:
                 block.append(f"  　{s['stock']}  {s['weight']}%")
             if len(stocks) > 5:
@@ -234,13 +219,11 @@ def format_portfolio_analysis(data: dict, metric_type: str) -> str:
 
     elif metric_type == "risk":
         unrealized_pnl  = data.get("unrealized_pnl", 0)
-        realized_pnl    = data.get("realized_pnl",   0)
         mdd             = data.get("mdd", 0)
         recovery_needed = data.get("recovery_needed", 0)
         volatility      = data.get("volatility", 0)
         block = []
         block.append(f"• 평가손익  {_icon(unrealized_pnl)} {_sign(unrealized_pnl)}{unrealized_pnl:,.0f}원")
-        block.append(f"• 실현손익  {_icon(realized_pnl)} {_sign(realized_pnl)}{realized_pnl:,.0f}원")
         block.append(f"• 최대 낙폭 (MDD)   {mdd:.2f}%")
         block.append(f"• 회복 필요 수익률  +{recovery_needed:.2f}%")
         block.append(f"• 일간 변동성       {volatility:.2f}%")
@@ -248,17 +231,11 @@ def format_portfolio_analysis(data: dict, metric_type: str) -> str:
 
     elif metric_type == "stats":
         total_trades = data.get("total_trades", 0)
-        win_count    = data.get("win_count",    0)
-        loss_count   = data.get("loss_count",   0)
-        avg_win      = data.get("avg_win",  0)
-        avg_loss     = data.get("avg_loss", 0)
-        profit_factor = data.get("profit_factor", 0)
+        buy_count    = data.get("buy_count",  0)
+        sell_count   = data.get("sell_count", 0)
         block = []
         block.append(f"• 총 거래  {total_trades}회")
-        block.append(f"• 수익 {win_count}회  /  손실 {loss_count}회")
-        block.append(f"• 평균 수익금  +{avg_win:,.0f}원")
-        block.append(f"• 평균 손실금  -{abs(avg_loss):,.0f}원")
-        block.append(f"• 손익비  {profit_factor}배")
+        block.append(f"• 매수 {buy_count}회  /  매도 {sell_count}회")
         sections.append("  \n".join(block))
 
     elif metric_type == "holdings":
@@ -269,7 +246,8 @@ def format_portfolio_analysis(data: dict, metric_type: str) -> str:
         block.append(f"• 보유 종목 수  {len(stocks)}개")
         block.append(f"• 국내 {domestic_ratio}%  /  해외 {foreign_ratio}%")
         if stocks:
-            block.append("• 종목별 비중 (상위 5)")
+            label = "• 종목별 비중 (상위 5)" if len(stocks) > 5 else "• 종목별 비중"
+            block.append(label)
             for s in stocks[:5]:
                 block.append(f"  　{s['stock']}  {s['weight']}%")
             if len(stocks) > 5:

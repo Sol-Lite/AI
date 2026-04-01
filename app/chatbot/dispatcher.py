@@ -83,7 +83,11 @@ _COMPARISON_RE = re.compile(
 )
 
 # 종목명과 함께 와도 포트폴리오 도구가 필요한 키워드
-_PORTFOLIO_KW_RE = re.compile(r"손익|손익비|평가손익|실현손익|수익금|손실금|평가액")
+_PORTFOLIO_KW_RE = re.compile(
+    r"손익|손익비|평가손익|실현손익|수익금|손실금|평가액"
+    r"|MDD|mdd|변동성|회복\s*필요|승률|포트폴리오\s*리스크|리스크\s*지표"
+    r"|거래\s*통계|매매\s*통계|투자\s*통계|거래\s*성과|평균\s*(수익금|손실금)"
+)
 
 # 보유 종목 대상 비교 패턴 — 항상 agent로
 _PORTFOLIO_COMPARISON_RE = re.compile(
