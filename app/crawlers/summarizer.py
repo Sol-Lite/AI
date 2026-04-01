@@ -53,7 +53,7 @@ def summarize_articles(articles: list) -> list:
         content = article.get("content", "")
         try:
             article["summary"] = summarize(content)
-            print(f"  요약 [{i}/{total}] {article.get('title', '')[:45]} → {article['summary'][:60]}...")
+            # print(f"  요약 [{i}/{total}] {article.get('title', '')[:45]} → {article['summary'][:60]}...")
             result.append(article)
         except Exception as e:
             print(f"  요약 실패 [{i}/{total}] {article.get('news_id', '')}: {e} → 저장 제외")
