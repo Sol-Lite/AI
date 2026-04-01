@@ -47,6 +47,8 @@ async def log_requests(request: Request, call_next):
 
 class ChatRequest(BaseModel):
     message: str
+    stock_code_hint: str | None = None  # 위젯 드래그 시 프론트에서 전달하는 종목코드 힌트
+    stock_name_hint: str | None = None  # 위젯 드래그 시 프론트에서 전달하는 종목명 힌트
 
 
 class ChatResponse(BaseModel):
@@ -90,6 +92,14 @@ async def chat_endpoint(
     if result is None:
         intent, params = detect(req.message)
         logger.info("[%s] intent=%s params=%s", account_id, intent, params)
+
+        # 위젯 드래그 힌트: CSV 미등록 종목도 처리 가능하도록 stock_code 주입
+        # params에 이미 stock_code가 있으면(CSV 히트) 덮어쓰지 않음
+        if req.stock_code_hint and not params.get("stock_code"):
+            params = {**params, "stock_code": req.stock_code_hint}
+            logger.info("[%s] stock_code_hint 주입: %s", account_id, req.stock_code_hint)
+        if req.stock_name_hint and not params.get("stock_name"):
+            params = {**params, "stock_name": req.stock_name_hint}
 
         # 문맥 기반 intent 보정 (손익 키워드, 비교 패턴, 종목 미지정 등)
         _intent_before = intent

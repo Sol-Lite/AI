@@ -190,9 +190,14 @@ def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
             return {"reply": "종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
         return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
     tool_ctx = _get_tool_context("get_stock_price", {"stock_code": stock_code}, data)
+    resolved_code = data.get("stock_code") or stock_code
+    resolved_name = data.get("stock_name", "")
+    # stock_name이 종목명 대신 코드로 채워진 경우(CSV 미등록 종목) hint로 대체
+    if not resolved_name or resolved_name == resolved_code:
+        resolved_name = params.get("stock_name") or resolved_name
     card_data = {
-        "stock_code":    data.get("stock_code") or stock_code,
-        "stock_name":    data.get("stock_name", ""),
+        "stock_code":    resolved_code,
+        "stock_name":    resolved_name,
         "market_type":   data.get("market_type"),
         "exchange_code": data.get("exchange_code"),
     }
