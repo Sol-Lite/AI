@@ -4,6 +4,25 @@
 
 _SEP = "━" * 22
 _SIDE_ICON = {"sell": "🔴 매도", "buy": "🔵 매수"}
+_DOMESTIC_MARKETS = {"KOSPI", "KOSDAQ"}
+
+
+def _is_overseas(market_type: str) -> bool:
+    """국내(KOSPI/KOSDAQ)가 아니면 해외로 판별 — portfolio.py와 동일 기준"""
+    return bool(market_type) and market_type.upper() not in _DOMESTIC_MARKETS
+
+
+def _fmt_price(price: float, market_type: str) -> str:
+    """국내 → 원, 해외 → 달러 표기"""
+    if _is_overseas(market_type):
+        return f"${price:,.2f}"
+    return f"{price:,.0f}원"
+
+
+def _fmt_amount(price: float, qty: int, market_type: str) -> str:
+    if _is_overseas(market_type):
+        return f"**${price * qty:,.2f}**"
+    return f"**{price * qty:,.0f}원**"
 
 
 def _fmt_dt(dt_str: str) -> str:
@@ -45,13 +64,13 @@ def format_trades(data: dict) -> str:
             name  = trade.get("stock_name", "-")
             price = trade.get("price", 0)
             qty   = trade.get("quantity", 0)
-            amt   = price * qty
+            mtype = trade.get("market_type", "")
             dt    = _fmt_dt(trade.get("executed_at", ""))
 
             lines.append(
                 f"{idx}. {label}  \n"
                 f"　　**{name}**  {dt}  \n"
-                f"　　{price:,.0f}원 × {qty}주 = **{amt:,.0f}원**"
+                f"　　{_fmt_price(price, mtype)} × {qty}주 = {_fmt_amount(price, qty, mtype)}"
             )
 
     lines.append(_SEP)
@@ -92,11 +111,12 @@ def format_trades_by_date(data: dict) -> str:
         name  = t.get("stock_name", "-")
         price = t.get("price", 0)
         qty   = t.get("quantity", 0)
+        mtype = t.get("market_type", "")
         dt    = _fmt_dt(t.get("executed_at", ""))
         lines.append(
             f"{idx}. {label}  \n"
             f"　　**{name}**  {dt}  \n"
-            f"　　{price:,.0f}원 × {qty}주 = **{price*qty:,.0f}원**"
+            f"　　{_fmt_price(price, mtype)} × {qty}주 = {_fmt_amount(price, qty, mtype)}"
         )
 
     lines.append(_SEP)
@@ -117,15 +137,17 @@ def format_trades_by_stock(data: dict) -> str:
 
     lines = [f"**{name}** 거래내역이에요. (총 {count}건)"]
 
+    mtype_stock = data.get("market_type", "")
     for idx, t in enumerate(trades[:5], start=1):
         side  = t.get("side", "buy")
         label = _SIDE_ICON.get(side, "🔵 매수")
         price = t.get("price", 0)
         qty   = t.get("quantity", 0)
+        mtype = t.get("market_type", mtype_stock)
         dt    = _fmt_dt(t.get("executed_at", ""))
         lines.append(
             f"{idx}. {label}  \n"
-            f"　　{dt}  /  {price:,.0f}원 × {qty}주"
+            f"　　{dt}  /  {_fmt_price(price, mtype)} × {qty}주"
         )
 
     if count > 5:

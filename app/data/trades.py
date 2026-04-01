@@ -39,7 +39,8 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
             ex.ORDER_SIDE,
             ex.EXECUTION_PRICE,
             ex.EXECUTION_QUANTITY,
-            ex.EXECUTED_AT
+            ex.EXECUTED_AT,
+            i.MARKET_TYPE
         FROM executions ex
         LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
         WHERE ex.account_id = :account_id
@@ -56,40 +57,53 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
                 "quantity":    int(row[3]   or 0),
                 "amount":      float(row[2] or 0) * int(row[3] or 0),
                 "executed_at": str(row[4]),
+                "market_type": str(row[5] or "").upper(),
             }
             for row in rows
         ]
     }
 
 
-def get_trades_by_date(account_id: str, date: str) -> dict:
-    """특정 날짜의 전체 거래 내역을 반환합니다. date 형식: 'YYYY-MM-DD' 또는 'MM-DD' 또는 'M월 D일'"""
+def get_trades_by_date(account_id: str, date: str, side: str | None = None) -> dict:
+    """특정 날짜의 거래 내역을 반환합니다. side='sell'이면 매도만, side='buy'이면 매수만 반환합니다."""
     import re
     date = date.strip()
     m = re.match(r'(\d{4})-(\d{2})-(\d{2})', date)
     if not m:
         m = re.match(r'(\d{1,2})월\s*(\d{1,2})일', date)
         if m:
-            date = f"2026-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+            from datetime import date as _date
+            _year = _date.today().year
+            date = f"{_year}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
         else:
             m = re.match(r'(\d{1,2})-(\d{1,2})', date)
             if m:
-                date = f"2026-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
+                from datetime import date as _date
+                _year = _date.today().year
+                date = f"{_year}-{int(m.group(1)):02d}-{int(m.group(2)):02d}"
 
-    sql = """
+    side_filter = ""
+    params: dict = {"account_id": account_id, "trade_date": date}
+    if side and side.upper() in ("BUY", "SELL"):
+        side_filter = "AND ex.ORDER_SIDE = :side"
+        params["side"] = side.upper()
+
+    sql = f"""
         SELECT
             i.STOCK_NAME,
             ex.ORDER_SIDE,
             ex.EXECUTION_PRICE,
             ex.EXECUTION_QUANTITY,
-            ex.EXECUTED_AT
+            ex.EXECUTED_AT,
+            i.MARKET_TYPE
         FROM executions ex
         LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
         WHERE ex.account_id = :account_id
           AND TRUNC(ex.EXECUTED_AT) = TO_DATE(:trade_date, 'YYYY-MM-DD')
+          {side_filter}
         ORDER BY ex.EXECUTED_AT DESC
     """
-    rows = fetch_all(sql, {"account_id": account_id, "trade_date": date}) or []
+    rows = fetch_all(sql, params) or []
     return {
         "date":  date,
         "count": len(rows),
@@ -101,6 +115,7 @@ def get_trades_by_date(account_id: str, date: str) -> dict:
                 "quantity":    int(row[3]   or 0),
                 "amount":      float(row[2] or 0) * int(row[3] or 0),
                 "executed_at": str(row[4]),
+                "market_type": str(row[5] or "").upper(),
             }
             for row in rows
         ],
@@ -127,7 +142,8 @@ def get_trades_by_stock(account_id: str, stock_code: str) -> dict:
             ex.ORDER_SIDE,
             ex.EXECUTION_PRICE,
             ex.EXECUTION_QUANTITY,
-            ex.EXECUTED_AT
+            ex.EXECUTED_AT,
+            i.MARKET_TYPE
         FROM executions ex
         LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
         WHERE ex.account_id  = :account_id
@@ -136,16 +152,19 @@ def get_trades_by_stock(account_id: str, stock_code: str) -> dict:
     """
     rows = fetch_all(sql, {"account_id": account_id, "stock_code": stock_code}) or []
     stock_name = rows[0][0] if rows else stock_code
+    market_type = str(rows[0][5] or "").upper() if rows else ""
     return {
-        "stock_code": stock_code,
-        "stock_name": stock_name,
-        "count":      len(rows),
+        "stock_code":  stock_code,
+        "stock_name":  stock_name,
+        "market_type": market_type,
+        "count":       len(rows),
         "trades": [
             {
                 "side":        row[1].lower() if row[1] else row[1],
                 "price":       float(row[2] or 0),
                 "quantity":    int(row[3]   or 0),
                 "executed_at": str(row[4]),
+                "market_type": str(row[5] or "").upper(),
             }
             for row in rows
         ],

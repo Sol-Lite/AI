@@ -24,7 +24,7 @@ from app.core.config import MONGO_URI, OLLAMA_BASE_URL, OLLAMA_MODEL
 
 # ── 크롤링 설정 ───────────────────────────────────────────────
 SEARCH_URL   = "https://search.hankyung.com/search/total"
-SEARCH_QUERY = "[오늘장 미리보기]"
+SEARCH_QUERY = "[뉴욕 증시 브리핑]"
 ARTICLE_BASE = "https://www.hankyung.com"
 OLLAMA_URL   = f"{OLLAMA_BASE_URL}/api/generate"
 
@@ -68,19 +68,34 @@ def clean_text(text: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 def _to_hamnida(text: str) -> str:
     pairs = [
+        # 과거형 동사 (-았/었/했/됐... + 다)
         (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
         (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
         (r'겠다\.', '겠습니다.'), (r'였다\.', '였습니다.'),
         (r'왔다\.', '왔습니다.'), (r'갔다\.', '갔습니다.'),
         (r'났다\.', '났습니다.'), (r'랐다\.', '랐습니다.'),
         (r'쳤다\.', '쳤습니다.'), (r'볐다\.', '볐습니다.'),
+        # 현재형 동사 (-ㄴ다/는다)
         (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
         (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
         (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
+        (r'인다\.', '입니다.'),   (r'는다\.', '습니다.'),
+        (r'않는다\.', '않습니다.'),
+        # 형용사/보조용언
+        (r'있다\.', '있습니다.'), (r'없다\.', '없습니다.'),
+        (r'않다\.', '않습니다.'),
+        (r'높다\.', '높습니다.'), (r'낮다\.', '낮습니다.'),
+        (r'크다\.', '큽니다.'),   (r'작다\.', '작습니다.'),
+        (r'같다\.', '같습니다.'), (r'맞다\.', '맞습니다.'),
+        (r'좋다\.', '좋습니다.'), (r'나쁘다\.', '나쁩니다.'),
+        # 문장 끝($) 버전 — 마침표 없이 끝나는 경우
         (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
         (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
         (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
         (r'한다$', '합니다.'),    (r'된다$', '됩니다.'),
+        (r'있다$', '있습니다.'),  (r'없다$', '없습니다.'),
+        (r'않다$', '않습니다.'),  (r'높다$', '높습니다.'),
+        (r'낮다$', '낮습니다.'),  (r'같다$', '같습니다.'),
     ]
     for pattern, replacement in pairs:
         text = re.sub(pattern, replacement, text)
@@ -201,6 +216,7 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 
     prompt = f"""아래 [기사 내용]을 읽고 분석하여 JSON을 출력하세요.
 주의사항:
+- 코스피, 코스닥에 관한 이벤트는 절대 포함하지 마세요. 나스닥, 해외 시장과 관련 내용만 분석하세요.
 - [출력 예시]는 형식만 보여주는 가짜 데이터입니다. 예시의 수치, 종목, 문장을 절대 그대로 사용하지 마세요.
 - 반드시 [기사 내용]에 실제로 등장하는 수치, 내용만 사용하세요.
 - market_event, market_sentiment, one_line_summary의 모든 문장은 반드시 '~했습니다.', '~됩니다.', '~입니다.' 형태로 끝내세요. '~다, ~했다.', '~됐다.', '~이다.' 형태는 절대 사용하지 마세요.
@@ -283,9 +299,11 @@ def run_job() -> None:
     print("  요약 중...")
     summary = summarize_with_ollama(content, meta.get("published_at"))
 
+    clean_title = re.sub(r'\[뉴욕\s*증시\s*브리핑\]\s*', '', meta["title"]).strip()
+
     doc = {
         "news_id":     meta["news_id"],
-        "title":       meta["title"],
+        "title":       clean_title,
         "content":     content,
         "summary":     summary,
         "source":      "hankyung",
