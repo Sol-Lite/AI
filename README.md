@@ -60,7 +60,6 @@ AI/
 │       ├── chart_price.py             # format_chart_price()
 │       ├── account.py                 # format_balance(balance_type)
 │       ├── stock_news.py              # format_korea_summary() / format_us_summary() / format_stock_news() / format_holdings_news()
-│       ├── stock_compare.py           # format_stock_compare() — 종목 간 등락률 비교
 │       ├── order.py                   # format_order()
 │       ├── trades.py                  # format_trades() / format_trades_by_date()
 │       ├── portfolio.py               # format_portfolio() / format_portfolio_analysis(metric_type)
@@ -94,7 +93,7 @@ dispatcher.pre_dispatch(intent, params, message)
       │  문맥 기반 intent 보정
       │  · 손익 키워드 + chart_price → unknown
       │  · 보유 종목 비교 → unknown (agent)
-      │  · 명시적 종목 2개+ 비교 → stock_compare (템플릿)
+      │  · 명시적 종목 2개+ 비교 → chart_price (multi_stock: True → 단일 종목 안내)
       │  · 매수/매도 추천 질문 → invest_advice (안내문구)
       │  · 종목 미지정 + 명시적 토큰 있음 → stock_not_found
       │  · 종목 미지정 + follow-up → 히스토리에서 마지막 종목 추출
@@ -116,7 +115,6 @@ dispatcher.dispatch(intent, params, user_context, message)
       ├── us_summary      → get_market_summary("us")           → format_us_summary()
       ├── market_summary  → korea + us 동시 조회 → 통합 응답
       ├── stock_news      → 섹터 키워드 감지 시 안내 / get_market_summary("stock_news")
-      ├── stock_compare   → 종목별 get_market_data("price") × N → format_stock_compare()
       ├── trades          → 단순 조회 → format_trades()
       │                     날짜 조회 → format_trades_by_date()
       │                     매수/매도 비교 → 직접 계산 (환각 방지)
@@ -185,8 +183,8 @@ ranking_type 키워드 매핑:
 | ------------------------------ | ---------------- |
 | 거래대금                       | `trading-value`  |
 | 거래량                         | `trading-volume` |
-| 상승, 많이 오른, 급등, 올랐    | `rising`         |
-| 하락, 많이 내린, 급락, 떨어졌  | `falling`        |
+| 상한가, 상승, 많이 오른, 급등, 올랐    | `rising`         |
+| 하한가, 하락, 많이 내린, 급락, 떨어졌  | `falling`        |
 | 시가총액, 시총                 | `market-cap`     |
 
 ---

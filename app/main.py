@@ -1,8 +1,10 @@
 # main.py
 import os
 import re
+import time
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from pydantic import BaseModel
 from app.core.auth import get_user_context
 from app.chatbot.router import detect
@@ -11,20 +13,26 @@ from app.chatbot.dispatcher import (
     INTENT_KW, _PORTFOLIO_KW_RE, _PORTFOLIO_COMPARISON_RE, _COMPARISON_RE,
 )
 from app import crawlers as crawler
+from app.core.config import ENABLE_CRAWLERS
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("chatbot")
 
 # 조합되지 않은 한글 자모 감지 (오타/IME 미완성 입력) — HTTP 입력 검증 전용
 _JAMO_RE = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]")
-
-ENABLE_CRAWLERS = os.getenv("ENABLE_CRAWLERS", "true").lower() == "true"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if ENABLE_CRAWLERS:
-        crawler.start()
+        crawler.start()   # 서버 시작 시 크롤러 백그라운드 스레드 실행
     yield
     if ENABLE_CRAWLERS:
-        crawler.stop()
+        crawler.stop()    # 서버 종료 시 크롤러 정상 종료
 
 
 app = FastAPI(title="Investment Chatbot", lifespan=lifespan)
@@ -32,11 +40,25 @@ app = FastAPI(title="Investment Chatbot", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "app_env": os.getenv("APP_ENV", "local")}
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration = time.time() - start
+    logger.info(
+        "HTTP %s %s → %d (%.2fs)",
+        request.method, request.url.path, response.status_code, duration,
+    )
+    return response
 
 
 class ChatRequest(BaseModel):
     message: str
+    stock_code_hint: str | None = None  # 위젯 드래그 시 프론트에서 전달하는 종목코드 힌트
+    stock_name_hint: str | None = None  # 위젯 드래그 시 프론트에서 전달하는 종목명 힌트
 
 
 class ChatResponse(BaseModel):
@@ -54,9 +76,13 @@ async def chat_endpoint(
 ) -> ChatResponse:
     account_id    = str(user_context.get("account_id", ""))
     session_since = user_context.get("session_since")   # 로그인 시각 (epoch float)
+    _t0 = time.time()
+    _msg_preview = req.message[:50].replace("\n", " ")
+    logger.info("[%s] 요청: %r", account_id, _msg_preview)
 
     # 조합되지 않은 한글 자모(ㄱ,ㄴ,ㅏ,ㅑ 등) 포함 → 오타/IME 미완성 입력
     if _JAMO_RE.search(req.message):
+        logger.info("[%s] 미완성 자모 입력 → 안내 반환 (%.2fs)", account_id, time.time() - _t0)
         return ChatResponse(reply="입력이 완성되지 않은 것 같아요. 다시 입력해 주세요.\n예) 삼성전자 현재가")
 
     # 짧은 단답 → 의도 키워드 또는 종목명이면 통과, 아닌 경우만 안내문구
@@ -67,6 +93,7 @@ async def chat_endpoint(
             _code, _ = resolve_from_csv(_nm(_stripped))
             if not _code:
                 from app.templates.guide import _GUIDE_MESSAGE
+                logger.info("[%s] 너무 짧은 입력 → 안내 반환 (%.2fs)", account_id, time.time() - _t0)
                 return ChatResponse(reply=_GUIDE_MESSAGE)
 
     # 종목명만 있는 follow-up + 직전 tool 재사용 → LLM 없이 직접 처리
@@ -74,9 +101,21 @@ async def chat_endpoint(
 
     if result is None:
         intent, params = detect(req.message)
+        logger.info("[%s] intent=%s params=%s", account_id, intent, params)
+
+        # 위젯 드래그 힌트: CSV 미등록 종목도 처리 가능하도록 stock_code 주입
+        # params에 이미 stock_code가 있으면(CSV 히트) 덮어쓰지 않음
+        if req.stock_code_hint and not params.get("stock_code"):
+            params = {**params, "stock_code": req.stock_code_hint}
+            logger.info("[%s] stock_code_hint 주입: %s", account_id, req.stock_code_hint)
+        if req.stock_name_hint and not params.get("stock_name"):
+            params = {**params, "stock_name": req.stock_name_hint}
 
         # 문맥 기반 intent 보정 (손익 키워드, 비교 패턴, 종목 미지정 등)
+        _intent_before = intent
         intent, params = pre_dispatch(intent, params, req.message, account_id, session_since)
+        if intent != _intent_before:
+            logger.info("[%s] intent 보정: %s → %s", account_id, _intent_before, intent)
 
         # unknown인데 세션 내 tool call 없으면 → 전체 기능 안내
         # 단, 명확한 키워드(포트폴리오/비교 등)가 있으면 agent로 위임
@@ -92,12 +131,16 @@ async def chat_endpoint(
                     or _COMPARISON_RE.search(req.message)
                 )
                 if not has_tool and not has_clear_intent:
+                    logger.info("[%s] unknown + 히스토리 없음 → 안내 반환", account_id)
                     result = {"reply": _GUIDE_MESSAGE}
             except Exception:
-                pass
+                logger.exception("[%s] 히스토리 조회 실패", account_id)
 
         if result is None:
+            logger.info("[%s] dispatch 시작: intent=%s", account_id, intent)
             result = dispatch(intent, params, user_context, original_message=req.message)
+    else:
+        logger.info("[%s] shortcut 적중: type=%s", account_id, result.get("type", "text"))
 
     # user + tool_context(있으면) + assistant 를 한 턴으로 저장
     try:
@@ -112,10 +155,13 @@ async def chat_endpoint(
         turn_messages.append({"role": "assistant", "content": saved_reply})
         save_conversation_turn(account_id, turn_messages)
     except Exception:
-        pass
+        logger.exception("[%s] 대화 저장 실패", account_id)
+
+    _result_type = result.get("type", "text")
+    logger.info("[%s] 응답 완료: type=%s (%.2fs)", account_id, _result_type, time.time() - _t0)
 
     return ChatResponse(
-        type=result.get("type", "text"),
+        type=_result_type,
         reply=result.get("reply", ""),
         stock_code=result.get("stock_code"),
         stock_name=result.get("stock_name"),

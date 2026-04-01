@@ -1,15 +1,44 @@
 import oracledb
 from app.core.config import ORACLE_DSN, ORACLE_USER, ORACLE_PASSWORD
 
+_pool: oracledb.ConnectionPool | None = None
 
-def get_oracle_connection():
-    """Oracle DB 연결 반환"""
-    return oracledb.connect(
+
+def _create_pool() -> oracledb.ConnectionPool:
+    return oracledb.create_pool(
         user=ORACLE_USER,
         password=ORACLE_PASSWORD,
         dsn=ORACLE_DSN,
         ssl_server_dn_match=False,
+        min=0,           # 유휴 커넥션 사전 생성 안 함 (서버 측 idle timeout 방지)
+        max=10,
+        increment=1,
+        ping_interval=-1,  # acquire 시 항상 유효성 검증
     )
+
+
+def _get_pool() -> oracledb.ConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = _create_pool()
+    return _pool
+
+
+def get_oracle_connection():
+    """커넥션 풀에서 연결 반환 (DPY-4011 시 풀 재생성 후 1회 재시도)"""
+    global _pool
+    try:
+        return _get_pool().acquire()
+    except oracledb.DatabaseError as e:
+        if "DPY-4011" in str(e):
+            try:
+                if _pool is not None:
+                    _pool.close(force=True)
+            except Exception:
+                pass
+            _pool = None
+            return _get_pool().acquire()
+        raise
 
 
 def fetch_one(query: str, params: dict = None):

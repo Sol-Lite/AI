@@ -21,19 +21,3 @@ def _last_tool_was_portfolio(account_id: str, session_since: float | None = None
     except Exception:
         pass
     return False
-
-
-def _has_recent_price_context(account_id: str, session_since: float | None = None) -> bool:
-    """최근 대화에서 가격/뉴스 tool을 2회 이상 사용했으면 True (종목 비교 맥락 감지)"""
-    try:
-        from app.db.mongo import get_chat_history
-        history = get_chat_history(account_id, limit=8, since=session_since)
-        count = sum(
-            1 for msg in history
-            if msg.get("role") == "assistant" and msg.get("tool_calls")
-            and msg["tool_calls"][0].get("function", {}).get("name") in _PRICE_TOOLS
-        )
-        return count >= 2
-    except Exception:
-        pass
-    return False

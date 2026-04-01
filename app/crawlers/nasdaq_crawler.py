@@ -20,14 +20,13 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 
-import boto3
-from app.core.config import MONGO_URI, SAGEMAKER_ENDPOINT_NAME, AWS_REGION, LLM_TIMEOUT_SECONDS
+from app.core.config import MONGO_URI
+from app.core.llm import generate_json_content, get_provider_name
 
 # ── 크롤링 설정 ───────────────────────────────────────────────
 SEARCH_URL   = "https://search.hankyung.com/search/total"
-SEARCH_QUERY = "[오늘장 미리보기]"
+SEARCH_QUERY = "[뉴욕 증시 브리핑]"
 ARTICLE_BASE = "https://www.hankyung.com"
-_sagemaker = boto3.client("sagemaker-runtime", region_name=AWS_REGION)
 
 HEADERS = {
     "User-Agent": (
@@ -69,19 +68,34 @@ def clean_text(text: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 def _to_hamnida(text: str) -> str:
     pairs = [
+        # 과거형 동사 (-았/었/했/됐... + 다)
         (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
         (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
         (r'겠다\.', '겠습니다.'), (r'였다\.', '였습니다.'),
         (r'왔다\.', '왔습니다.'), (r'갔다\.', '갔습니다.'),
         (r'났다\.', '났습니다.'), (r'랐다\.', '랐습니다.'),
         (r'쳤다\.', '쳤습니다.'), (r'볐다\.', '볐습니다.'),
+        # 현재형 동사 (-ㄴ다/는다)
         (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
         (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
         (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
+        (r'인다\.', '입니다.'),   (r'는다\.', '습니다.'),
+        (r'않는다\.', '않습니다.'),
+        # 형용사/보조용언
+        (r'있다\.', '있습니다.'), (r'없다\.', '없습니다.'),
+        (r'않다\.', '않습니다.'),
+        (r'높다\.', '높습니다.'), (r'낮다\.', '낮습니다.'),
+        (r'크다\.', '큽니다.'),   (r'작다\.', '작습니다.'),
+        (r'같다\.', '같습니다.'), (r'맞다\.', '맞습니다.'),
+        (r'좋다\.', '좋습니다.'), (r'나쁘다\.', '나쁩니다.'),
+        # 문장 끝($) 버전 — 마침표 없이 끝나는 경우
         (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
         (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
         (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
         (r'한다$', '합니다.'),    (r'된다$', '됩니다.'),
+        (r'있다$', '있습니다.'),  (r'없다$', '없습니다.'),
+        (r'않다$', '않습니다.'),  (r'높다$', '높습니다.'),
+        (r'낮다$', '낮습니다.'),  (r'같다$', '같습니다.'),
     ]
     for pattern, replacement in pairs:
         text = re.sub(pattern, replacement, text)
@@ -95,8 +109,14 @@ def apply_hamnida(summary: dict) -> dict:
         summary["market_event"] = [_to_hamnida(s) for s in summary["market_event"]]
     if isinstance(summary.get("one_line_summary"), str):
         summary["one_line_summary"] = _to_hamnida(summary["one_line_summary"])
-    if isinstance(summary.get("market_sentiment"), str):
-        summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
+    if isinstance(summary.get("sectors"), list):
+        summary["sectors"] = [_to_hamnida(s) for s in summary["sectors"]]
+    stocks = summary.get("stocks")
+    if isinstance(stocks, dict):
+        if isinstance(stocks.get("up"), list):
+            stocks["up"] = [_to_hamnida(s) for s in stocks["up"]]
+        if isinstance(stocks.get("down"), list):
+            stocks["down"] = [_to_hamnida(s) for s in stocks["down"]]
     return summary
 
 
@@ -202,17 +222,24 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 
     prompt = f"""아래 [기사 내용]을 읽고 분석하여 JSON을 출력하세요.
 주의사항:
+- 코스피, 코스닥에 관한 이벤트는 절대 포함하지 마세요. 나스닥, S&P500, 다우 등 해외 시장과 관련 내용만 분석하세요.
 - [출력 예시]는 형식만 보여주는 가짜 데이터입니다. 예시의 수치, 종목, 문장을 절대 그대로 사용하지 마세요.
-- 반드시 [기사 내용]에 실제로 등장하는 수치, 내용만 사용하세요.
-- market_event, market_sentiment, one_line_summary의 모든 문장은 반드시 '~했습니다.', '~됩니다.', '~입니다.' 형태로 끝내세요. '~다, ~했다.', '~됐다.', '~이다.' 형태는 절대 사용하지 마세요.
-- 모든 텍스트는 반드시 한국어(한글)로만 작성하세요. 한자(漢字)는 절대 사용하지 마세요. 예: '운수업종' (O), '運輸업종' (X)
+- 반드시 [기사 내용]에 실제로 등장하는 수치, 종목명, 섹터명만 사용하세요.
+- market_event, one_line_summary의 모든 문장은 반드시 '~했습니다.', '~됩니다.', '~입니다.' 형태로 끝내세요. '~다, ~했다.', '~됐다.', '~이다.' 형태는 절대 사용하지 마세요.
+- market_event, one_line_summary, sectors는 반드시 한국어(한글)로만 작성하세요. 한자(漢字)는 절대 사용하지 마세요.
+- stocks의 종목명은 기사에 표기된 원문 그대로 사용하세요 (영문: "Nvidia", 한글: "엔비디아" 등 기사 표기 따름).
+- sectors와 stocks에 등장하지 않는 항목은 빈 배열([])로 두세요.
 - 설명이나 마크다운 없이 JSON만 출력하세요.
 
 [JSON 스키마]
 {{
   "date": "날짜 문자열",
   "market_event": ["이벤트1", "이벤트2", ...],
-  "market_sentiment": "시장 심리 요약",
+  "sectors": ["상승/하락 섹터1(등락률)", ...],
+  "stocks": {{
+    "up": ["종목명(등락률)", ...],
+    "down": ["종목명(등락률)", ...]
+  }},
   "one_line_summary": "한줄 요약"
 }}
 
@@ -221,38 +248,31 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
   "date": "2026년 3월 20일",
   "market_event": [
     "간밤 뉴욕 증시는 S&P500(-0.27%), 나스닥(-0.28%), 다우(-0.44%) 소폭 하락 마감했습니다.",
-    "네타냐후 총리의 이란 전쟁 조기 종전 발언으로 브렌트유가 배럴당 106달러까지 급락했습니다.",
+    "연준 금리 동결 결정에도 경기 침체 우려가 커지며 기술주 중심으로 매물이 출회됐습니다.",
     "원/달러 환율은 전일 대비 9원 하락한 1492원으로 안정세를 보였습니다."
   ],
-  "market_sentiment": "지정학적 리스크 완화 기대감과 유가 하락으로 투자 심리가 개선됐습니다. 다만 마이크론(-3.78%) 차익 실현으로 반도체주 변동성이 확대될 수 있습니다.",
-  "one_line_summary": "유가 하락과 환율 안정, 이란 전쟁 조기 종전 기대감으로 코스피는 전일 급락분을 일부 만회하는 상승 출발이 예상됩니다."
+  "sectors": ["기술(-1.2%)", "에너지(+0.8%)", "헬스케어(-0.5%)"],
+  "stocks": {{
+    "up": ["Nvidia(+2.15%)", "Meta(+1.03%)", "Amazon(+0.77%)"],
+    "down": ["Micron(-3.78%)", "Intel(-2.10%)", "Tesla(-1.55%)"]
+  }},
+  "one_line_summary": "연준 금리 동결 발표에도 경기 침체 우려로 기술주가 하락하며 나스닥이 소폭 내렸습니다."
 }}
 
 [기사 내용]
 {content}
 
-위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
+    위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
 
     try:
-        payload = {
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 2048,
-            "temperature": 0.1,
-        }
-        resp = _sagemaker.invoke_endpoint(
-            EndpointName=SAGEMAKER_ENDPOINT_NAME,
-            ContentType="application/json",
-            Body=json.dumps(payload),
-        )
-        data = json.loads(resp["Body"].read())
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        raw = generate_json_content(prompt, temperature=0.1, max_tokens=2048)
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             result = json.loads(repair_json(raw))
         return apply_hamnida(result)
     except Exception as e:
-        print(f"  sagemaker 요약 실패: {e}")
+        print(f"  {get_provider_name()} 요약 실패: {e}")
         return {}
 
 
@@ -283,9 +303,11 @@ def run_job() -> None:
     print("  요약 중...")
     summary = summarize_with_ollama(content, meta.get("published_at"))
 
+    clean_title = re.sub(r'\[뉴욕\s*증시\s*브리핑\]\s*', '', meta["title"]).strip()
+
     doc = {
         "news_id":     meta["news_id"],
-        "title":       meta["title"],
+        "title":       clean_title,
         "content":     content,
         "summary":     summary,
         "source":      "hankyung",

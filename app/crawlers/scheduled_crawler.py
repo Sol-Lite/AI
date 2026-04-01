@@ -208,7 +208,7 @@ def fetch_news_list(ticker, target=TARGET_PER_STOCK):
             r.raise_for_status()
             data = r.json()
         except Exception as e:
-            print(f'  [{ticker}] API 요청 실패 (page {page}): {e}')
+            # print(f'  [{ticker}] API 요청 실패 (page {page}): {e}')
             break
 
         if isinstance(data, list):
@@ -253,7 +253,7 @@ def fetch_news_list_from_page(ticker, market):
             []
         )
     except Exception as e:
-        print(f'  [{ticker}] 페이지 파싱 실패: {e}')
+        # print(f'  [{ticker}] 페이지 파싱 실패: {e}')
         return []
 
 
@@ -287,7 +287,7 @@ def crawl_stock_news(stock, target=TARGET_PER_STOCK):
 
     raw_items = fetch_news_list(ticker, target=target)
     if not raw_items:
-        print(f'  [{ticker}] API 결과 없음 → 페이지 파싱 시도')
+        # print(f'  [{ticker}] API 결과 없음 → 페이지 파싱 시도')
         raw_items = fetch_news_list_from_page(ticker, market)
 
     if not raw_items:
@@ -410,12 +410,12 @@ def _crawl_and_save(stock) -> int:
 
     candidates = crawl_stock_news(stock, target=TARGET_PER_STOCK)
     if not candidates:
-        print(f'  [{ticker}] {stock["stock_name"]} — 수집 없음')
+        # print(f'  [{ticker}] {stock["stock_name"]} — 수집 없음')
         return 0
 
     new_articles = deduplicate(candidates)
     if not new_articles:
-        print(f'  [{ticker}] {stock["stock_name"]} — 모두 중복')
+        # print(f'  [{ticker}] {stock["stock_name"]} — 모두 중복')
         return 0
 
     new_articles = summarize_articles(new_articles)

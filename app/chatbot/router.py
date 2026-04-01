@@ -140,8 +140,6 @@ _PATTERNS: dict[str, list[str]] = {
         r"저가",
         r"최고가",
         r"최저가",
-        r"상한가",
-        r"하한가",
         r"가격\s*알려",
         r"가격\s*조회",
         r"얼마야",
@@ -158,6 +156,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"핫한\s*종목",
         r"상승주",
         r"하락주",
+        r"상한가",
+        r"하한가",
         r"많이\s*오른",
         r"많이\s*내린",
         r"상승률\s*높",
@@ -274,9 +274,12 @@ _PATTERNS: dict[str, list[str]] = {
         r"매수\s*내역",
         r"매도\s*내역",
         r"투자\s*내역",
-        # 시점 + 과거형 매수/매도/거래/주문 — "언제 샀지?", "어제 팔았어?", "최근에 매수했나?"
-        r"(언제|어제|최근에?|지난번에?|며칠|몇\s*일)\s*(샀|팔았|매수했|매도했|체결했|거래했|주문했)",
+        # 시점 + 과거형/관형형 매수/매도 — "어제 팔았어?", "오늘 산 종목", "어제 판 종목"
+        r"(언제|오늘|어제|최근에?|지난번에?|며칠|몇\s*일)\s*(샀|팔았|매수했|매도했|체결했|거래했|주문했)",
         r"(샀|팔았|매수했|매도했|체결했|거래했|주문했)(지|나|니|어|요|나요|지요|었나|었지|었어)",
+        # 관형형(산/판/매수한/매도한) + 종목 — "오늘 산 종목", "어제 판 종목"
+        r"(오늘|어제|최근|지난번|\d+월\s*\d+일|\d{4}-\d{2}-\d{2})\s*(산|판|매수한|매도한|체결한|거래한)",
+        r"(산|판|매수한|매도한|체결한)\s*종목",
     ],
     # (12) 포트폴리오 분석 [AI agent]
     "portfolio": [
@@ -289,9 +292,27 @@ _PATTERNS: dict[str, list[str]] = {
         r"내\s*수익률",
         r"보유\s*한?\s*(주식|종목)",
         r"내\s*가?\s*보유",
+        r"보유\s*(중|해|하고|있어|있나|있어요|하고\s*있)",
         r"내\s*자산",
-        r"섹터\s*비중",
-        r"업종\s*비중",
+        r"\bMDD\b",
+        r"\bMDd\b",
+        r"\bMdD\b",
+        r"\bmDD\b",
+        r"\bMdd\b",
+        r"\bmdD\b",
+        r"\bmdd\b",
+        r"\bmDd\b",
+        r"변동성",
+        r"최대\s*낙폭",
+        r"승률",
+        r"손익비",
+        r"평가\s*손익",
+        r"실현\s*손익",
+        r"거래\s*통계",
+        r"매매\s*통계",
+        r"투자\s*통계",
+        r"거래\s*성과",
+        r"평균\s*(수익금|손실금)",
     ],
 }
 
@@ -341,6 +362,19 @@ def detect(message: str) -> tuple[str, dict]:
     # 대화 지시어가 있으면 이전 맥락 기반 질문 → agent로 직행
     if _is_followup(msg):
         return "unknown", {}
+
+    # 국내+해외 시황 동시 요청 — korea/us_summary보다 먼저 체크
+    _BOTH_SUMMARY_RE = re.compile(
+        r"국내.{0,10}(해외|미국)"
+        r"|해외.{0,10}국내"
+        r"|한국.{0,10}(미국|해외)"
+        r"|(미국|해외).{0,10}한국"
+        r"|코스피.{0,10}(나스닥|미국|해외)"
+        r"|(나스닥|미국|해외).{0,10}코스피",
+        re.IGNORECASE,
+    )
+    if _BOTH_SUMMARY_RE.search(msg):
+        return "market_summary", {}
 
     for intent in _PRIORITY:
         for pattern in _PATTERNS[intent]:
@@ -403,9 +437,9 @@ def _extract_ranking_type(message: str) -> str:
         return "trading-value"
     if re.search(r"거래량", message):
         return "trading-volume"
-    if re.search(r"상승|많이\s*오른|많이\s*올랐|급등|올랐", message):
+    if re.search(r"상한가|상승|많이\s*오른|많이\s*올랐|급등|올랐", message):
         return "rising"
-    if re.search(r"하락|많이\s*내린|많이\s*떨어|급락|떨어졌", message):
+    if re.search(r"하한가|하락|많이\s*내린|많이\s*떨어|급락|떨어졌", message):
         return "falling"
     if re.search(r"시가총액|시총", message):
         return "market-cap"

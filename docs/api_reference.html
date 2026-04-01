@@ -248,7 +248,6 @@
 
   <div class="sb-group">templates/</div>
   <a class="sb-link" href="#tpl-chart">chart_price.py</a>
-  <a class="sb-link" href="#tpl-compare">stock_compare.py</a>
   <a class="sb-link" href="#tpl-news">stock_news.py</a>
   <a class="sb-link" href="#tpl-portfolio">portfolio.py</a>
   <a class="sb-link" href="#tpl-trades">trades.py</a>
@@ -415,7 +414,7 @@
               <td><span class="fn-name">_extract_ranking_type</span></td>
               <td><span class="fn-params">message: str</span></td>
               <td><span class="fn-return">str</span></td>
-              <td class="fn-desc">거래량 / 거래대금 / 상승 / 하락 / 시가총액 중 해당 유형 반환</td>
+              <td class="fn-desc">거래량 / 거래대금 / 상한가·상승 → rising / 하한가·하락 → falling / 시가총액 중 해당 유형 반환</td>
             </tr>
             <tr>
               <td><span class="fn-name">_extract_currency_pair</span></td>
@@ -560,7 +559,6 @@
             <tr><td><span class="fn-name">_handle_stock_news</span></td><td><span class="fn-params">stock_code, stock_codes<br>stock_not_found</span></td><td><span class="fn-return">"stock_news"</span></td><td class="fn-desc">단일/복수 종목 뉴스 조회. 섹터 키워드면 안내 반환</td></tr>
             <tr><td><span class="fn-name">_handle_portfolio</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">단순 조회 → 템플릿 / 지표별 → 포커스 분석 / 복합 → agent</td></tr>
             <tr><td><span class="fn-name">_handle_trades</span></td><td><span class="fn-params">stock_code</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">최근 / 날짜별 / 종목별 거래내역 조회. 복잡한 질문은 agent</td></tr>
-            <tr><td><span class="fn-name">_handle_stock_compare</span></td><td><span class="fn-params">stock_codes: list[tuple]</span></td><td><span class="fn-return">"stock_price"</span></td><td class="fn-desc">2개 이상 종목 시세를 각각 조회 → format_stock_compare()</td></tr>
             <tr><td><span class="fn-name">_handle_invest_advice</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">_INVEST_ADVICE_MESSAGE 반환 (매수/매도 추천 불가 안내)</td></tr>
             <tr><td><span class="fn-name">_handle_unknown</span></td><td><span class="fn-params">—</span></td><td><span class="fn-return">"text"</span></td><td class="fn-desc">섹터 키워드 → 안내 / 매수매도 비교 → 직접계산 / 그 외 → agent</td></tr>
           </tbody>
@@ -590,12 +588,6 @@
               <td><span class="fn-params">account_id: str<br>session_since: float|None</span></td>
               <td><span class="fn-return">bool</span></td>
               <td class="fn-desc">최근 6턴 히스토리에서 마지막 tool이 portfolio/trades 도구이면 True. 모호한 질문을 agent로 보낼지 결정하는 데 사용</td>
-            </tr>
-            <tr>
-              <td><span class="fn-name">_has_recent_price_context</span></td>
-              <td><span class="fn-params">account_id: str<br>session_since: float|None</span></td>
-              <td><span class="fn-return">bool</span></td>
-              <td class="fn-desc">최근 8턴에서 price/news tool을 2회 이상 사용했으면 True. 종목 비교 맥락 감지에 사용</td>
             </tr>
           </tbody>
         </table>
@@ -793,7 +785,6 @@
           <tbody>
             <tr><td><span class="fn-name pub">get_holdings</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">holdings: list</span></td><td class="fn-desc">현재 보유 종목 목록 (stock_code, stock_name, quantity, eval_price 등)</td></tr>
             <tr><td><span class="fn-name pub">get_portfolio_returns</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">daily/1m/3m/6m_return, mdd</span></td><td class="fn-desc">기간별 수익률 및 최대 낙폭(MDD) 반환</td></tr>
-            <tr><td><span class="fn-name pub">get_sector_concentration</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">sectors: list</span></td><td class="fn-desc">섹터별 보유 비중 [{sector, weight}] 반환</td></tr>
             <tr><td><span class="fn-name pub">get_portfolio_risk</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">risk 지표 dict</span></td><td class="fn-desc">변동성, MDD, 손익 등 리스크 지표 반환</td></tr>
             <tr><td><span class="fn-name pub">get_trade_stats</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">win_rate, pnl_ratio 등</span></td><td class="fn-desc">승률, 손익비, 거래 수 등 통계 반환</td></tr>
             <tr><td><span class="fn-name pub">get_portfolio_summary</span></td><td><span class="fn-params">account_id: str</span></td><td><span class="fn-return">전체 합산 dict</span></td><td class="fn-desc">위 5개 함수 결과를 하나로 합친 포트폴리오 전체 요약 반환</td></tr>
@@ -843,22 +834,6 @@
       </div>
       <div class="const-grid">
         <div class="const-item"><span class="const-name">data 입력 키</span><div class="const-desc">stock_name, current_price, change, change_rate, open, high, low, volume, currency</div></div>
-      </div>
-    </div>
-
-    <div class="module" id="tpl-compare">
-      <div class="module-header">
-        <span class="module-path">app/templates/stock_compare.py</span>
-        <span class="module-badge badge-template">template</span>
-      </div>
-      <p class="module-desc">2개 이상 종목의 등락률/등락폭을 비교하는 텍스트를 생성합니다.</p>
-      <div class="fn-table-wrap">
-        <table class="fn-table">
-          <thead><tr><th>함수명</th><th>파라미터</th><th>반환값</th><th>설명</th></tr></thead>
-          <tbody>
-            <tr><td><span class="fn-name pub">format_stock_compare</span></td><td><span class="fn-params">stocks: list[dict]</span></td><td><span class="fn-return">str</span></td><td class="fn-desc">종목별 현재가+등락 나열 후 등락률 기준 최고/최저 종목 요약 추가</td></tr>
-          </tbody>
-        </table>
       </div>
     </div>
 

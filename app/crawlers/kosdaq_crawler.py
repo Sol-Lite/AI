@@ -21,13 +21,12 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 
-import boto3
-from app.core.config import MONGO_URI, SAGEMAKER_ENDPOINT_NAME, AWS_REGION, LLM_TIMEOUT_SECONDS
+from app.core.config import MONGO_URI
+from app.core.llm import generate_json_content, get_provider_name
 
 # ── 크롤링 설정 ───────────────────────────────────────────────
 SEARCH_API_URL   = "https://www.news2day.co.kr/rest/search"
 ARTICLE_BASE_URL = "https://www.news2day.co.kr"
-_sagemaker = boto3.client("sagemaker-runtime", region_name=AWS_REGION)
 
 HEADERS = {
     "User-Agent": (
@@ -80,19 +79,34 @@ def parse_html_content(raw_html: str) -> str:
 # ═══════════════════════════════════════════════════════════════
 def _to_hamnida(text: str) -> str:
     pairs = [
+        # 과거형 동사 (-았/었/했/됐... + 다)
         (r'했다\.', '했습니다.'), (r'됐다\.', '됐습니다.'),
         (r'았다\.', '았습니다.'), (r'었다\.', '었습니다.'),
         (r'겠다\.', '겠습니다.'), (r'였다\.', '였습니다.'),
         (r'왔다\.', '왔습니다.'), (r'갔다\.', '갔습니다.'),
         (r'났다\.', '났습니다.'), (r'랐다\.', '랐습니다.'),
         (r'쳤다\.', '쳤습니다.'), (r'볐다\.', '볐습니다.'),
+        # 현재형 동사 (-ㄴ다/는다)
         (r'이다\.', '입니다.'),   (r'한다\.', '합니다.'),
         (r'된다\.', '됩니다.'),   (r'진다\.', '집니다.'),
         (r'린다\.', '립니다.'),   (r'킨다\.', '킵니다.'),
+        (r'인다\.', '입니다.'),   (r'는다\.', '습니다.'),
+        (r'않는다\.', '않습니다.'),
+        # 형용사/보조용언
+        (r'있다\.', '있습니다.'), (r'없다\.', '없습니다.'),
+        (r'않다\.', '않습니다.'),
+        (r'높다\.', '높습니다.'), (r'낮다\.', '낮습니다.'),
+        (r'크다\.', '큽니다.'),   (r'작다\.', '작습니다.'),
+        (r'같다\.', '같습니다.'), (r'맞다\.', '맞습니다.'),
+        (r'좋다\.', '좋습니다.'), (r'나쁘다\.', '나쁩니다.'),
+        # 문장 끝($) 버전 — 마침표 없이 끝나는 경우
         (r'했다$', '했습니다.'),  (r'됐다$', '됐습니다.'),
         (r'았다$', '았습니다.'),  (r'었다$', '었습니다.'),
         (r'겠다$', '겠습니다.'),  (r'이다$', '입니다.'),
         (r'한다$', '합니다.'),    (r'된다$', '됩니다.'),
+        (r'있다$', '있습니다.'),  (r'없다$', '없습니다.'),
+        (r'않다$', '않습니다.'),  (r'높다$', '높습니다.'),
+        (r'낮다$', '낮습니다.'),  (r'같다$', '같습니다.'),
     ]
     for pattern, replacement in pairs:
         text = re.sub(pattern, replacement, text)
@@ -148,7 +162,7 @@ def fetch_today_articles() -> list:
 
         for item in items:
             article_id       = item.get("id", "")
-            title            = item.get("title", "").strip()
+            title            = item.get("title", "").replace("[마감시황]", "").replace("(마감시황)", "").strip()
             raw_html         = item.get("content", "")
             link             = item.get("link", "")
             release_date_str = item.get("releaseDate") or item.get("firstReleaseDate", "")
@@ -246,28 +260,17 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 [기사 내용]
 {content}
 
-위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
+    위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
 
     try:
-        payload = {
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 2048,
-            "temperature": 0.1,
-        }
-        resp = _sagemaker.invoke_endpoint(
-            EndpointName=SAGEMAKER_ENDPOINT_NAME,
-            ContentType="application/json",
-            Body=json.dumps(payload),
-        )
-        data = json.loads(resp["Body"].read())
-        raw = data.get("choices", [{}])[0].get("message", {}).get("content", "{}")
+        raw = generate_json_content(prompt, temperature=0.1, max_tokens=2048)
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             result = json.loads(repair_json(raw))
         return apply_hamnida(result)
     except Exception as e:
-        print(f"  sagemaker 요약 실패: {e}")
+        print(f"  {get_provider_name()} 요약 실패: {e}")
         return {}
 
 

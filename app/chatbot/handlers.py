@@ -38,8 +38,9 @@ def _get_tool_context(tool_name: str, args: dict, result: dict) -> list:
 
 def _resolve_code(stock_code: str) -> str | None:
     """입력값이 코드 형식이면 그대로, 아니면 Oracle DB에서 종목명으로 코드 조회."""
-    if re.match(r'^[A-Z0-9]{1,10}(\.[A-Z]{1,2})?$', str(stock_code)):
-        return stock_code
+    upper = str(stock_code).upper()
+    if re.match(r'^[A-Z0-9]{1,10}(\.[A-Z]{1,2})?$', upper):
+        return upper
     try:
         from app.db.oracle import resolve_stock_code
         return resolve_stock_code(stock_code)
@@ -73,8 +74,11 @@ _HOLDINGS_NEWS_RE = re.compile(
     r"(뉴스|기사|소식).*내\s*가?\s*보유"
 )
 
+
 _PORTFOLIO_SIMPLE_RE = re.compile(
-    r"^(내\s*)?(포트폴리오|포폴)(\s*(분석|보여|조회|알려|현황|요약))?(\s*(줘|해줘|해줘요|볼게|볼래))?$"
+    r"^(내\s*)?(포트폴리오|포폴)"
+    r"(\s*(분석|보여|조회|알려|현황|요약|보고\s*싶|확인|점검))?"
+    r"(\s*(줘|해줘|해줘요|볼게|볼래|어|어요|싶어|싶어요))?$"
 )
 
 _TRADES_SIMPLE_RE = re.compile(
@@ -103,10 +107,9 @@ _CROSS_DOMAIN_RE = re.compile(r"뉴스|기사|소식|시세|주가|현재가|얼
 
 _METRIC_KEYWORDS: dict[str, list[str]] = {
     "returns":  ["수익률", "수익", "실적", "기간별", "1개월", "3개월", "6개월", "최고", "손실 최소", "최저", "best", "worst"],
-    "sector":   ["섹터", "업종", "구성", "비중", "포트폴리오 구성", "국내", "해외", "분산"],
     "risk":     ["리스크", "risk", "위험", "mdd", "낙폭", "최대 낙폭", "변동", "변동성", "회복", "손익", "평가", "실현"],
     "stats":    ["거래 통계", "승률", "손익비", "거래수", "체결 통계", "평균 수익", "평균 손실"],
-    "holdings": ["보유 종목", "종목 수", "종목별", "보유", "holdings"],
+    "holdings": ["보유 종목", "종목 수", "종목별", "보유", "holdings", "비중", "구성", "국내", "해외", "분산"],
 }
 
 
@@ -188,9 +191,14 @@ def _handle_chart_price(params: dict, user_context: dict, message: str) -> dict:
             return {"reply": "종목을 찾을 수 없습니다. 종목명을 다시 확인해 주세요."}
         return {"reply": "시세 데이터를 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."}
     tool_ctx = _get_tool_context("get_stock_price", {"stock_code": stock_code}, data)
+    resolved_code = data.get("stock_code") or stock_code
+    resolved_name = data.get("stock_name", "")
+    # stock_name이 종목명 대신 코드로 채워진 경우(CSV 미등록 종목) hint로 대체
+    if not resolved_name or resolved_name == resolved_code:
+        resolved_name = params.get("stock_name") or resolved_name
     card_data = {
-        "stock_code":    data.get("stock_code") or stock_code,
-        "stock_name":    data.get("stock_name", ""),
+        "stock_code":    resolved_code,
+        "stock_name":    resolved_name,
         "market_type":   data.get("market_type"),
         "exchange_code": data.get("exchange_code"),
     }
@@ -327,11 +335,25 @@ def _handle_stock_news(params: dict, user_context: dict, message: str) -> dict:
     }
 
 
+_SECTOR_QUERY_RE = re.compile(r"섹터\s*비중|업종\s*비중|섹터\s*분석|업종\s*분석|섹터\s*별|업종\s*별")
+
+_SECTOR_NOT_SUPPORTED = (
+    "죄송해요, 섹터/업종 비중 분석은 현재 제공하지 않아요.  \n"
+    "아래 기능을 이용해 주세요.  \n\n"
+    "• 보유 종목 조회 — 예) 내 보유 종목  \n"
+    "• 수익률 조회 — 예) 내 수익률  \n"
+    "• 리스크 분석 — 예) 내 포트폴리오 리스크"
+)
+
+
 def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
     from app.templates.portfolio import format_portfolio, format_portfolio_analysis
 
     msg        = message.strip()
     account_id = user_context.get("account_id", "")
+
+    if _SECTOR_QUERY_RE.search(msg):
+        return {"reply": _SECTOR_NOT_SUPPORTED}
 
     # 단순 포트폴리오 조회 → 전체 템플릿
     if _PORTFOLIO_SIMPLE_RE.match(msg):
@@ -340,7 +362,9 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
             data     = get_portfolio_summary(account_id)
             tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": "holdings"}, data)
             return {"reply": format_portfolio(data), "_tool_context": tool_ctx, "_is_template": True}
-        except Exception:
+        except Exception as e:
+            import traceback, logging
+            logging.error(f"[portfolio] get_portfolio_summary 실패: {e}\n{traceback.format_exc()}")
             return {"reply": "포트폴리오 데이터를 불러올 수 없어요. 잠시 후 다시 시도해 주세요."}
 
     # 보유 종목 뉴스 → 직접 처리
@@ -375,16 +399,16 @@ def _handle_portfolio(params: dict, user_context: dict, message: str) -> dict:
         except Exception:
             return {"reply": _FALLBACK_MESSAGE}
 
-    # 특정 지표 질문 → 포커스 분석
-    metric_type = _detect_metric_type(msg)
-    if metric_type:
-        try:
-            from app.data.portfolio import get_portfolio_summary
-            data     = get_portfolio_summary(account_id)
-            tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": metric_type}, data)
-            return {"reply": format_portfolio_analysis(data, metric_type), "_tool_context": tool_ctx, "_is_template": True}
-        except Exception:
-            pass
+    # 특정 지표 질문 → 포커스 분석 (주석 처리: agent 경로로 _해설 활용)
+    # metric_type = _detect_metric_type(msg)
+    # if metric_type:
+    #     try:
+    #         from app.data.portfolio import get_portfolio_summary
+    #         data     = get_portfolio_summary(account_id)
+    #         tool_ctx = _get_tool_context("get_portfolio_info", {"info_type": metric_type}, data)
+    #         return {"reply": format_portfolio_analysis(data, metric_type), "_tool_context": tool_ctx, "_is_template": True}
+    #     except Exception:
+    #         pass
 
     # 그 외 → agent
     try:
