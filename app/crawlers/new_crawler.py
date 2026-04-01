@@ -8,6 +8,7 @@ nasdaq_crawler.py의 08:40 스케줄과 관계없이 지금 당장 실행합니�
     python -m app.crawlers.fetch_us_news_now
 """
 
+import re
 from datetime import datetime
 
 from app.crawlers.nasdaq_crawler import (
@@ -41,9 +42,11 @@ def run() -> None:
         print("  요약 실패 — 저장 건너뜀")
         return
 
+    clean_title = re.sub(r'\[뉴욕\s*증시\s*브리핑\]\s*', '', meta["title"]).strip()
+
     doc = {
         "news_id":      meta["news_id"],
-        "title":        meta["title"],
+        "title":        clean_title,
         "content":      content,
         "summary":      summary,
         "source":       "hankyung",
