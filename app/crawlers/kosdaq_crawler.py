@@ -147,7 +147,7 @@ def fetch_today_articles() -> list:
 
         for item in items:
             article_id       = item.get("id", "")
-            title            = item.get("title", "").strip()
+            title            = item.get("title", "").replace("[마감시황]", "").strip()
             raw_html         = item.get("content", "")
             link             = item.get("link", "")
             release_date_str = item.get("releaseDate") or item.get("firstReleaseDate", "")
