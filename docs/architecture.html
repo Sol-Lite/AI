@@ -545,6 +545,7 @@
           <div class="folder-file"><span class="fname">scheduled_crawler.py</span><span class="fdesc">KOSPI 200 + NASDAQ 100 종목 뉴스 — 30분마다 수집</span></div>
           <div class="folder-file"><span class="fname">kosdaq_crawler.py</span><span class="fdesc">한국 시장 마감 요약 — 매일 16:30</span></div>
           <div class="folder-file"><span class="fname">nasdaq_crawler.py</span><span class="fdesc">미국 시장 프리뷰 — 매일 08:40</span></div>
+          <div class="folder-file"><span class="fname">summarizer.py</span><span class="fdesc">KoBART 요약 모델 로더 (kobart-summary-v3, 지연 로딩)</span></div>
         </div>
       </div>
 
@@ -689,20 +690,16 @@
         <div class="intent-ex">예: "최근 거래 내역", "언제 샀어?", "매매 기록"</div>
       </div>
       <div class="intent-item">
+        <div class="intent-name">exchange_order</div>
+        <div class="intent-ex">예: "달러로 환전해줘", "원화로 바꾸고 싶어"</div>
+      </div>
+      <div class="intent-item">
         <div class="intent-name">buy_intent</div>
         <div class="intent-ex">예: "삼성전자 사고 싶어", "매수하고 싶은데"</div>
       </div>
       <div class="intent-item">
         <div class="intent-name">sell_intent</div>
         <div class="intent-ex">예: "현대차 팔아줘", "매도하고 싶어"</div>
-      </div>
-      <div class="intent-item">
-        <div class="intent-name">invest_advice</div>
-        <div class="intent-ex">예: "삼성전자 팔아야 해?", "지금 살까?" — 매수/매도 추천 불가 안내</div>
-      </div>
-      <div class="intent-item">
-        <div class="intent-name">exchange_order</div>
-        <div class="intent-ex">예: "달러로 환전해줘", "원화로 바꾸고 싶어"</div>
       </div>
       <div class="intent-item">
         <div class="intent-name">balance</div>
@@ -733,22 +730,23 @@
         <div class="intent-ex">예: "코스피 지금 얼마?", "나스닥 지수"</div>
       </div>
       <div class="intent-item">
-        <div class="intent-name">exchange_rate</div>
-        <div class="intent-ex">예: "달러 환율 얼마야?", "엔화 지금?"</div>
+        <div class="intent-name">chart_price</div>
+        <div class="intent-ex">예: "삼성전자 시세", "현대차 주가 얼마야?"</div>
       </div>
       <div class="intent-item">
         <div class="intent-name">ranking</div>
         <div class="intent-ex">예: "상한가 종목", "오늘 많이 오른 주식"</div>
       </div>
       <div class="intent-item">
-        <div class="intent-name">chart_price</div>
-        <div class="intent-ex">예: "삼성전자 시세", "현대차 주가 얼마야?"</div>
+        <div class="intent-name">exchange_rate</div>
+        <div class="intent-ex">예: "달러 환율 얼마야?"</div>
       </div>
     </div>
+    <p class="text-gray" style="margin-top:0.75rem;font-size:0.875rem">※ <code>invest_advice</code>는 router 감지 의도가 아니라 dispatcher의 pre_dispatch 단계에서 매수/매도 추천 질문 패턴을 감지해 설정됩니다.</p>
 
     <div class="info-box warn mt">
       <span class="icon">⚠️</span>
-      <div><strong>에이전트로 넘어가는 경우:</strong> "그 종목 시세" (대명사 사용), "삼성전자랑 SK하이닉스 비교해줘" (복수 종목), "포트폴리오에서 제일 많이 오른 거 지금 얼마야?" (복합 질문) — 이런 경우는 규칙으로 처리하기 어려워 AI 에이전트에게 넘깁니다.</div>
+      <div><strong>에이전트로 넘어가는 경우:</strong> "그 종목 시세" (대명사 사용), "포트폴리오에서 제일 많이 오른 거 지금 얼마야?" (복합 질문) — 이런 경우는 규칙으로 처리하기 어려워 AI 에이전트에게 넘깁니다. 복수 종목 입력("삼성전자 SK하이닉스 시세")은 에이전트가 아닌 단일 종목 입력 안내로 처리됩니다.</div>
     </div>
     <div class="info-box mt" style="background:#eff6ff;border-color:#3b82f6;">
       <span class="icon">ℹ️</span>
@@ -778,13 +776,13 @@
           <li>🛒 매수/매도 주문 (UI 팝업)</li>
           <li>💱 환전 주문 (UI 팝업)</li>
           <li>⛔ 매수/매도 추천 질문 → 안내문구</li>
+          <li>⛔ 복수 종목 입력 → 단일 종목 안내</li>
         </ul>
       </div>
       <div class="split-box smart">
         <h4>🧠 AI 에이전트 경로 (약 20%)</h4>
         <p style="font-size:0.85rem;margin-bottom:0.75rem">LLM이 여러 도구를 순차적으로 호출하며 복잡한 질문을 단계별로 추론합니다.</p>
         <ul>
-          <li>🔍 복수 종목 비교</li>
           <li>📋 포트폴리오 심화 분석</li>
           <li>🔗 대명사 활용 질문 ("그 종목...")</li>
           <li>📅 복잡한 거래 내역 질문</li>

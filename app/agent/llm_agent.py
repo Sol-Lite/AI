@@ -1,10 +1,11 @@
 """
-단일 agent — 4개 도구로 모든 질문 처리
+단일 agent — 5개 도구로 모든 질문 처리
 
 도구:
     get_stock_price(stock_code)              — 종목 시세
     get_stock_news(stock_code)               — 종목별 뉴스
     get_portfolio_info(info_type)            — 포트폴리오 (holdings/returns/risk/stats)
+    get_market_summary(market)               — 한국/미국 시황 (korea/us/both)
     get_trade_history(query_type, ...)       — 거래내역 (recent/by_stock/by_date)
 
 흐름:
@@ -180,7 +181,6 @@ def _fmt_portfolio(info_type: str, data: dict) -> dict:
 
     if info_type == "holdings":
         holdings = data.get("holdings", [])
-        usdkrw   = float(data.get("usdkrw") or 1.0)
 
         # ── 1. 비중 계산 (포맷 전 raw float 사용) ───────────────────────────
         total_value = sum(h.get("current_value_krw", 0) for h in holdings) or 1
@@ -251,22 +251,16 @@ def _fmt_portfolio(info_type: str, data: dict) -> dict:
                 "기간별 수익률 데이터가 아직 없어요. "
                 "포트폴리오 스냅샷이 충분히 쌓이면 1개월·3개월·6개월 수익률을 확인할 수 있어요."
             )
-        else:
-            lines = []
-            if r1 != "데이터 없음":
-                lines.append(f"1개월 {r1}")
-            if r3 != "데이터 없음":
-                lines.append(f"3개월 {r3}")
-            if r6 != "데이터 없음":
-                lines.append(f"6개월 {r6}")
-            period_str = " / ".join(lines) + " 수익률이에요." if lines else ""
-            stock_lines = []
-            if best:
-                br = _fmt_rate(best.get("return_rate", 0)) if isinstance(best.get("return_rate"), float) else best.get("return_rate", "")
-                stock_lines.append(f"수익률이 가장 좋은 종목은 {best['name']}({br})이고,")
-            if worst:
-                wr = _fmt_rate(worst.get("return_rate", 0)) if isinstance(worst.get("return_rate"), float) else worst.get("return_rate", "")
-                stock_lines.append(f"수익률이 가장 낮은 종목은 {worst['name']}({wr})예요.")
+        lines = [f"1개월 {r1}", f"3개월 {r3}", f"6개월 {r6}"]
+        period_str = " / ".join(lines) + " 수익률이에요." if not all_missing else ""
+        stock_lines = []
+        if best:
+            br = _fmt_rate(best.get("return_rate", 0)) if isinstance(best.get("return_rate"), float) else best.get("return_rate", "")
+            stock_lines.append(f"수익률이 가장 좋은 종목은 {best['name']}({br})이고,")
+        if worst:
+            wr = _fmt_rate(worst.get("return_rate", 0)) if isinstance(worst.get("return_rate"), float) else worst.get("return_rate", "")
+            stock_lines.append(f"수익률이 가장 낮은 종목은 {worst['name']}({wr})예요.")
+        if not all_missing or stock_lines:
             data["_해설"] = " ".join([period_str] + stock_lines).strip()
         return data
 
@@ -275,7 +269,6 @@ def _fmt_portfolio(info_type: str, data: dict) -> dict:
         raw_vol  = data.get("volatility", 0)
         raw_rec  = data.get("recovery_needed", 0)
         raw_upnl = data.get("unrealized_pnl", 0)
-        raw_rpnl = data.get("realized_pnl", 0)
 
         for key in ("mdd", "volatility"):
             if key in data:

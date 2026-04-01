@@ -140,8 +140,6 @@ _PATTERNS: dict[str, list[str]] = {
         r"저가",
         r"최고가",
         r"최저가",
-        r"상한가",
-        r"하한가",
         r"가격\s*알려",
         r"가격\s*조회",
         r"얼마야",
@@ -158,6 +156,8 @@ _PATTERNS: dict[str, list[str]] = {
         r"핫한\s*종목",
         r"상승주",
         r"하락주",
+        r"상한가",
+        r"하한가",
         r"많이\s*오른",
         r"많이\s*내린",
         r"상승률\s*높",
@@ -437,9 +437,9 @@ def _extract_ranking_type(message: str) -> str:
         return "trading-value"
     if re.search(r"거래량", message):
         return "trading-volume"
-    if re.search(r"상승|많이\s*오른|많이\s*올랐|급등|올랐", message):
+    if re.search(r"상한가|상승|많이\s*오른|많이\s*올랐|급등|올랐", message):
         return "rising"
-    if re.search(r"하락|많이\s*내린|많이\s*떨어|급락|떨어졌", message):
+    if re.search(r"하한가|하락|많이\s*내린|많이\s*떨어|급락|떨어졌", message):
         return "falling"
     if re.search(r"시가총액|시총", message):
         return "market-cap"

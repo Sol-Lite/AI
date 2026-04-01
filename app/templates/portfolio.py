@@ -60,16 +60,12 @@ def format_portfolio(data: dict) -> str:
         block.append(f"• 평가손익  ➖ 조회 불가")
     sections.append("  \n".join(block))
 
-    # ── 기간별 수익률 ─────────────────────────────────────────────────────────
-    has_period = any(r is not None for r in [return_1m, return_3m, return_6m])
-    if has_period or pos_best or neg_worst:
-        block = ["**📈 기간별 수익률**"]
-        if return_1m is not None:
-            block.append(f"• 1개월  {_icon(return_1m)} {_pct(return_1m)}")
-        if return_3m is not None:
-            block.append(f"• 3개월  {_icon(return_3m)} {_pct(return_3m)}")
-        if return_6m is not None:
-            block.append(f"• 6개월  {_icon(return_6m)} {_pct(return_6m)}")
+    # ── 성과 ─────────────────────────────────────────────────────────
+    if True:
+        block = ["**📈 성과**"]
+        block.append(f"• 1개월간의 수익률  {_icon(return_1m) + ' ' + _pct(return_1m) if return_1m is not None else '—'}")
+        block.append(f"• 3개월간의 수익률  {_icon(return_3m) + ' ' + _pct(return_3m) if return_3m is not None else '—'}")
+        block.append(f"• 6개월간의 수익률  {_icon(return_6m) + ' ' + _pct(return_6m) if return_6m is not None else '—'}")
         if pos_best:
             block.append(_return_line("수익률 최고", "🔺", pos_best))
         if pos_worst:
@@ -122,7 +118,7 @@ def _summary_returns(data: dict) -> str:
         parts.append(f"수익률 최고 {pos_best['name']} {_pct(pos_best.get('return_rate', 0))}")
     if neg_worst:
         parts.append(f"손실률 최고 {neg_worst['name']} {_pct(neg_worst.get('return_rate', 0))}")
-    return (" / ".join(parts) + "입니다.") if parts else "기간별 수익률 데이터가 없습니다."
+    return (" / ".join(parts) + "입니다.") if parts else "수익률 데이터가 없습니다."
 
 
 
@@ -161,7 +157,7 @@ _METRIC_SUMMARY = {
 }
 
 _METRIC_LABEL = {
-    "returns":  "📈 기간별 수익률",
+    "returns":  "📈 성과",
     "risk":     "⚠️ 리스크 지표",
     "stats":    "🎯 거래 통계",
     "holdings": "📋 보유 종목",
@@ -185,12 +181,9 @@ def format_portfolio_analysis(data: dict, metric_type: str) -> str:
         neg_worst = data.get("neg_worst")
         neg_best  = data.get("neg_best")
         block = []
-        if r1 is not None:
-            block.append(f"• 1개월  {_icon(r1)} {_pct(r1)}")
-        if r3 is not None:
-            block.append(f"• 3개월  {_icon(r3)} {_pct(r3)}")
-        if r6 is not None:
-            block.append(f"• 6개월  {_icon(r6)} {_pct(r6)}")
+        block.append(f"• 1개월간의 수익률  {_icon(r1) + ' ' + _pct(r1) if r1 is not None else '—'}")
+        block.append(f"• 3개월간의 수익률  {_icon(r3) + ' ' + _pct(r3) if r3 is not None else '—'}")
+        block.append(f"• 6개월간의 수익률  {_icon(r6) + ' ' + _pct(r6) if r6 is not None else '—'}")
         if pos_best:
             block.append(_return_line("수익률 최고", "🔺", pos_best))
         if pos_worst:
