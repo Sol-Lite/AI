@@ -24,7 +24,7 @@ from app.core.config import MONGO_URI, OLLAMA_BASE_URL, OLLAMA_MODEL
 
 # ── 크롤링 설정 ───────────────────────────────────────────────
 SEARCH_URL   = "https://search.hankyung.com/search/total"
-SEARCH_QUERY = "[오늘장 미리보기]"
+SEARCH_QUERY = "[뉴욕 증시 브리핑]"
 ARTICLE_BASE = "https://www.hankyung.com"
 OLLAMA_URL   = f"{OLLAMA_BASE_URL}/api/generate"
 
@@ -299,9 +299,11 @@ def run_job() -> None:
     print("  요약 중...")
     summary = summarize_with_ollama(content, meta.get("published_at"))
 
+    clean_title = re.sub(r'\[뉴욕\s*증시\s*브리핑\]\s*', '', meta["title"]).strip()
+
     doc = {
         "news_id":     meta["news_id"],
-        "title":       meta["title"],
+        "title":       clean_title,
         "content":     content,
         "summary":     summary,
         "source":      "hankyung",
