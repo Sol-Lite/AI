@@ -31,9 +31,15 @@ def get_trade_summary(account_id: str) -> dict:
     }
 
 
-def get_recent_trades(account_id: str, limit: int = 10) -> dict:
-    """최근 거래 내역 목록을 반환합니다."""
-    sql = """
+def get_recent_trades(account_id: str, limit: int = 10, side: str | None = None) -> dict:
+    """최근 거래 내역 목록을 반환합니다. side='buy'/'sell'이면 해당 방향만 반환합니다."""
+    side_filter = ""
+    params: dict = {"account_id": account_id, "limit": limit}
+    if side and side.upper() in ("BUY", "SELL"):
+        side_filter = "AND ex.ORDER_SIDE = :side"
+        params["side"] = side.upper()
+
+    sql = f"""
         SELECT
             i.STOCK_NAME,
             ex.ORDER_SIDE,
@@ -44,10 +50,11 @@ def get_recent_trades(account_id: str, limit: int = 10) -> dict:
         FROM executions ex
         LEFT JOIN instruments i ON ex.INSTRUMENT_ID = i.INSTRUMENT_ID
         WHERE ex.account_id = :account_id
+          {side_filter}
         ORDER BY ex.EXECUTED_AT DESC
         FETCH FIRST :limit ROWS ONLY
     """
-    rows = fetch_all(sql, {"account_id": account_id, "limit": limit}) or []
+    rows = fetch_all(sql, params) or []
     return {
         "trades": [
             {

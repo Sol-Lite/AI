@@ -70,10 +70,9 @@ def format_us_summary(data: dict) -> str:
     if isinstance(summary, str):
         return f"**🇺🇸 해외 시황**\n\n{_SEP}\n\n{summary}"
 
-    published_at     = data.get("published_at", "")
-    date             = published_at or summary.get("date", "")
     market_events    = summary.get("market_event", [])
-    market_sentiment = summary.get("market_sentiment", "")
+    sectors          = summary.get("sectors", [])
+    stocks           = summary.get("stocks", {})
     one_line_summary = summary.get("one_line_summary", "")
 
     sections = [f"**🇺🇸 해외 시황**", _SEP]
@@ -87,8 +86,21 @@ def format_us_summary(data: dict) -> str:
             block.append(f"• {event}")
         sections.append("  \n".join(block))
 
-    if market_sentiment:
-        sections.append(f"**🧭 시장 심리**  \n{market_sentiment}")
+    if sectors:
+        block = ["**📊 섹터 동향**"]
+        for s in sectors:
+            block.append(f"• {s}")
+        sections.append("  \n".join(block))
+
+    up_list   = [s for s in stocks.get("up",   []) if s]
+    down_list = [s for s in stocks.get("down", []) if s]
+    if up_list or down_list:
+        block = ["**📈 주요 종목**"]
+        for s in up_list:
+            block.append(f"🔺 {s}")
+        for s in down_list:
+            block.append(f"🔻 {s}")
+        sections.append("  \n".join(block))
 
     sections.append(_SEP)
     return "\n\n".join(sections)

@@ -74,6 +74,7 @@ _HOLDINGS_NEWS_RE = re.compile(
     r"(뉴스|기사|소식).*내\s*가?\s*보유"
 )
 
+
 _PORTFOLIO_SIMPLE_RE = re.compile(
     r"^(내\s*)?(포트폴리오|포폴)"
     r"(\s*(분석|보여|조회|알려|현황|요약|보고\s*싶|확인|점검))?"

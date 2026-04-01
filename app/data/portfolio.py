@@ -140,38 +140,6 @@ def get_portfolio_returns(account_id: str) -> dict:
     }
 
 
-def get_sector_concentration(account_id: str) -> dict:
-    """섹터별 보유 비중을 반환합니다. 현재 평가금액(KRW 환산) 기준으로 비중을 계산합니다."""
-    # get_holdings는 이미 current_value_krw를 올바르게 계산함 (환율 적용 포함)
-    holdings_data = get_holdings(account_id)
-    holdings = holdings_data.get("holdings", [])
-
-    # 섹터 × 국내/해외 조합별로 current_value_krw 합산
-    sector_map: dict[tuple, float] = {}
-    for h in holdings:
-        key = (h.get("sector", "기타"), h.get("market_type", "domestic"))
-        sector_map[key] = sector_map.get(key, 0.0) + h.get("current_value_krw", 0.0)
-
-    total = sum(sector_map.values()) or 1
-    sectors = [
-        {
-            "sector":      sector or "기타",
-            "market_type": market_cat,
-            "weight":      round(value / total * 100, 1),
-        }
-        for (sector, market_cat), value in sector_map.items()
-    ]
-    sectors.sort(key=lambda x: x["weight"], reverse=True)
-
-    domestic_weight = round(
-        sum(s["weight"] for s in sectors if s["market_type"] == "domestic"), 1
-    )
-    return {
-        "sectors":         sectors,
-        "domestic_weight": domestic_weight,
-        "overseas_weight": round(100 - domestic_weight, 1),
-    }
-
 
 def get_portfolio_risk(account_id: str) -> dict:
     """포트폴리오 리스크 지표: 변동성, MDD, 최고/최저 수익 종목을 반환합니다."""

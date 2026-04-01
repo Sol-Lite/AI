@@ -80,10 +80,10 @@ _TOOLS = [
                         "enum": ["holdings", "returns", "risk", "stats"],
                         "description": (
                             "조회할 정보 유형:\n"
-                            "- holdings: 보유 종목 목록, 종목별 비중, 특정 종목 보유 여부\n"
+                            "- holdings: 현재 보유 중인 종목 목록·비중·보유 여부. '보유 주식/종목 알려줘'는 반드시 이 값 사용.\n"
                             "- returns: 기간별 수익률 (일간, 1개월, 3개월, 6개월)\n"
-                            "- risk: 평가손익, 실현손익, 변동성, MDD, 최고/최저 수익 종목\n"
-                            "- stats: 승률, 손익비, 평균 수익금/손실금 등 거래 통계"
+                            "- risk: 변동성, MDD, 평가손익, 보유 종목별 수익률, 최고/최저 수익 종목 (실현손익은 제공 불가)\n"
+                            "- stats: 총 거래 횟수, 매수 횟수, 매도 횟수 (승률·손익비·평균 수익금은 현재 집계 불가)"
                         ),
                     }
                 },
@@ -101,8 +101,8 @@ _TOOLS = [
                 "properties": {
                     "market": {
                         "type": "string",
-                        "enum": ["korea", "us"],
-                        "description": "조회할 시장: korea(한국/코스피/코스닥), us(미국/나스닥/S&P500)",
+                        "enum": ["korea", "us", "both"],
+                        "description": "조회할 시장: korea(한국/코스피/코스닥), us(미국/나스닥/S&P500), both(한국+미국 동시 조회)",
                     }
                 },
                 "required": ["market"],
@@ -142,7 +142,7 @@ _TOOLS = [
                     "side": {
                         "type": "string",
                         "enum": ["buy", "sell"],
-                        "description": "query_type=by_date일 때 매수(buy) 또는 매도(sell)만 필터링. '판 종목'·'매도' → sell, '산 종목'·'매수' → buy. 생략 시 전체 반환.",
+                        "description": "매수(buy) 또는 매도(sell)만 필터링. recent/by_date 모두 사용 가능. '판 종목'·'매도' → sell, '산 종목'·'매수' → buy. 생략 시 전체 반환.",
                     },
                 },
                 "required": ["query_type"],
@@ -484,6 +484,10 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
     if name == "get_market_summary":
         from app.data.news import get_market_summary
         market = args.get("market", "korea")
+        if market == "both":
+            korea_result = get_market_summary(type="korea")
+            us_result    = get_market_summary(type="us")
+            return {"korea": korea_result, "us": us_result}
         return get_market_summary(type=market)
 
     if name == "get_stock_news":
@@ -515,9 +519,28 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
         query_type = args.get("query_type", "recent")
         if query_type == "recent":
             summary = get_trade_summary(account_id)
-            recent  = get_recent_trades(account_id, limit=args.get("limit", 10))
-            result  = {**summary, "trades": recent["trades"]}
-            # LLM 비교 환각 방지: 미리 계산된 비교 결과 주입
+            recent  = get_recent_trades(account_id, limit=args.get("limit", 10), side=args.get("side"))
+            trades  = recent["trades"]
+            fmt_trades = []
+            for t in trades:
+                side_str = "매도" if str(t.get("side", "")).lower() == "sell" else "매수"
+                qty      = int(t.get("quantity") or 0)
+                price    = float(t.get("price") or 0)
+                mkt      = str(t.get("market_type") or "").upper()
+                at       = str(t.get("executed_at", ""))[:16]
+                name     = str(t.get("stock_name") or "")
+                is_overseas = mkt not in ("KOSPI", "KOSDAQ", "")
+                if is_overseas:
+                    fmt_trades.append(f"{at} {name} {side_str} {qty:,}주 @ 체결가 ${price:,.2f}")
+                else:
+                    fmt_trades.append(f"{at} {name} {side_str} {qty:,}주 @ 체결가 {int(price):,}원")
+            # 종목명 목록 추출 (follow-up 현재가/뉴스 질문 시 _extract_last_stock이 사용)
+            seen: list[str] = []
+            for t in trades:
+                n = str(t.get("stock_name") or "")
+                if n and n not in seen:
+                    seen.append(n)
+            result = {**summary, "거래내역": fmt_trades, "종목목록": seen}
             buy_count  = int(result.get("buy_count",  0))
             sell_count = int(result.get("sell_count", 0))
             if buy_count > sell_count:
@@ -534,11 +557,16 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
             trades = result.get("trades", [])
             fmt_trades = []
             for t in trades[:5]:
-                side  = "매도" if str(t.get("side", "")).upper() in ("SELL", "sell") else "매수"
+                side  = "매도" if str(t.get("side", "")).lower() == "sell" else "매수"
                 qty   = int(t.get("quantity") or 0)
-                price = int(t.get("price") or 0)
+                price = float(t.get("price") or 0)
+                mkt   = str(t.get("market_type") or "").upper()
                 at    = str(t.get("executed_at", ""))[:16]
-                fmt_trades.append(f"{at} {side} {qty:,}주 @ {price:,}원")
+                is_overseas = mkt not in ("KOSPI", "KOSDAQ", "")
+                if is_overseas:
+                    fmt_trades.append(f"{at} {side} {qty:,}주 @ 체결가 ${price:,.2f}")
+                else:
+                    fmt_trades.append(f"{at} {side} {qty:,}주 @ 체결가 {int(price):,}원")
             return {
                 "stock_name": result.get("stock_name", stock_code),
                 "stock_code": result.get("stock_code", stock_code),
@@ -546,7 +574,35 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
                 "거래내역":   fmt_trades,
             }
         if query_type == "by_date":
-            return get_trades_by_date(account_id, date=args["date"], side=args.get("side"))
+            from datetime import date as _date
+            date_arg = args.get("date") or str(_date.today())
+            result = get_trades_by_date(account_id, date=date_arg, side=args.get("side"))
+            trades = result.get("trades", [])
+            fmt_trades = []
+            for t in trades[:10]:
+                side_str  = "매도" if str(t.get("side", "")).lower() == "sell" else "매수"
+                qty       = int(t.get("quantity") or 0)
+                price     = float(t.get("price") or 0)
+                mkt       = str(t.get("market_type") or "").upper()
+                at        = str(t.get("executed_at", ""))[:16]
+                name      = str(t.get("stock_name") or "종목명 없음")
+                is_overseas = mkt not in ("KOSPI", "KOSDAQ", "")
+                if is_overseas:
+                    fmt_trades.append(f"{at} {name} {side_str} {qty:,}주 @ 체결가 ${price:,.2f}")
+                else:
+                    fmt_trades.append(f"{at} {name} {side_str} {qty:,}주 @ 체결가 {int(price):,}원")
+            # 종목명 목록 추출 (follow-up 현재가/뉴스 질문 시 _extract_last_stock이 사용)
+            seen: list[str] = []
+            for t in trades:
+                n = str(t.get("stock_name") or "")
+                if n and n not in seen:
+                    seen.append(n)
+            return {
+                "date":     result.get("date", date_arg),
+                "count":    result.get("count", len(trades)),
+                "거래내역": fmt_trades,
+                "종목목록": seen,
+            }
         return {"error": f"Unknown query_type: {query_type}"}
 
     return {"error": f"Unknown tool: {name}"}
@@ -556,11 +612,12 @@ def _execute(name: str, args: dict, account_id: str) -> dict:
 
 def _build_tool_system() -> str:
     """1턴용: 도구 선택에만 집중하는 짧은 프롬프트."""
-    from datetime import date
-    today = date.today()
+    from datetime import date, timedelta
+    today     = date.today()
+    yesterday = today - timedelta(days=1)
     weekday_map = ["월", "화", "수", "목", "금", "토", "일"]
     weekday = weekday_map[today.weekday()]
-    return f"당신은 주식 투자 어시스턴트입니다. 오늘: {today}({weekday}요일)." + """
+    return f"""당신은 주식 투자 어시스턴트입니다. 오늘: {today}({weekday}요일).
 
 [도구 선택 규칙]
 수치가 필요한 질문은 반드시 도구를 먼저 호출하세요. 수치를 직접 생성하는 것은 절대 금지입니다.
@@ -570,22 +627,35 @@ def _build_tool_system() -> str:
 도구 선택 기준:
 - 특정 종목 현재가/주가/시세 → get_stock_price
 - 종목 뉴스/기사 → get_stock_news
-- 한국/미국 시장 시황 → get_market_summary (market: korea/us)
+- 한국/미국 시장 시황 → get_market_summary (market: korea/us/both)
+  · 한국 시황만 → market=korea, 미국 시황만 → market=us
+  · 국내+해외/한국+미국/두 시장 동시 → market=both
 - 포트폴리오 질문 → get_portfolio_info (info_type 선택)
 - 거래내역 질문 → get_trade_history (query_type 선택)
 - 손익/평가손익/실현손익/수익률/수익금은 종목명이 있어도 get_portfolio_info 사용, get_stock_price 금지
 
 포트폴리오 info_type 선택:
-- 보유 종목, 종목 비중, 보유 여부 → holdings
+- 보유 주식/종목 목록, 지금 갖고 있는 종목, 종목 비중, 보유 여부 → holdings
+  ※ "보유 주식/종목"은 반드시 get_portfolio_info(holdings). get_trade_history 사용 절대 금지.
+  ※ get_trade_history는 과거 매수·매도 이력이며 현재 보유 여부와 무관합니다.
 - 포트폴리오 전체 기간 수익률 (1개월·3개월·6개월 전체 포트폴리오 수익률) → returns
   ※ "수익률이 좋은/높은/낮은 종목" 등 종목별 비교는 returns 아님 → risk 사용
-- 평가손익, 실현손익, MDD, 변동성, 수익률이 가장 좋은/나쁜 종목, 가장 많이 오른/내린 종목, 종목별 수익률 비교 → risk
-- 승률, 손익비, 거래 통계 → stats
+- 변동성, MDD, 평가손익, 수익률이 가장 좋은/나쁜 종목, 가장 많이 오른/내린 종목, 종목별 수익률 비교 → risk
+  ※ 실현손익은 현재 제공 불가
+- 총 거래 횟수, 매수/매도 횟수 → stats
+  ※ 승률·손익비·평균 수익금은 현재 집계 불가. 사용자가 물어보면 "현재 제공되지 않아요"라고 안내하세요.
 
 거래내역 query_type 선택:
-- 최근 거래, 전체 거래 요약 → recent
-- 특정 종목 거래 이력 → by_stock
-- 특정 날짜 거래 → by_date
+- "최근에", "최근", "가장 최근", "마지막으로", "요즘" 등 날짜 미지정 최근 거래 → recent
+  ※ "최근에 산/판 종목"처럼 명시적 날짜가 없으면 반드시 recent 사용. by_date 사용 금지.
+- 특정 종목의 전체 거래 이력 → by_stock
+- "오늘", "어제", "N월 N일" 등 명시적 날짜가 있는 거래 → by_date
+  ※ 날짜 표현이 없으면 절대 by_date 사용 금지.
+
+by_date 파라미터 규칙:
+- '오늘 산/판/거래' → date="{today}"
+- '어제 산/판/거래' → date="{yesterday}"
+- '산 종목'·'매수' → side=buy, '판 종목'·'매도' → side=sell, '거래/매매' → side 생략
 
 이전 대화 맥락 활용:
 - 종목명만 있는 짧은 질문("하닉은?")은 이전 대화의 도구와 동일한 도구를 사용하세요.
@@ -596,8 +666,10 @@ def _build_tool_system() -> str:
 - 이전 tool 결과로 답할 수 있으면 도구를 다시 호출하지 마세요.
 
 다단계 질문:
-포트폴리오에서 특정 종목을 찾은 뒤 현재가/뉴스가 필요하면 도구를 두 번 호출하세요.
+포트폴리오/거래내역에서 종목을 찾은 뒤 현재가/뉴스가 필요하면 도구를 두 번 호출하세요.
 예) "포트폴리오에서 제일 오른 종목 현재가" → get_portfolio_info(risk) → best_stock 확인 → get_stock_price(종목명)
+예) "가장 최근에 매수한 종목 현재가" → get_trade_history(recent, side=buy, limit=1) → 종목목록[0] 확인 → get_stock_price(종목명)
+예) "가장 최근에 판 종목 현재가" → get_trade_history(recent, side=sell, limit=1) → 종목목록[0] 확인 → get_stock_price(종목명)
 
 투자와 무관한 질문: "투자 관련 질문만 답변드릴 수 있어요."라고 안내하세요.
 섹터/업종 뉴스 요청: "섹터별 뉴스는 제공하지 않아요. 종목별 뉴스나 시황 뉴스를 이용해 주세요."라고 안내하세요."""
@@ -648,7 +720,13 @@ def _build_answer_system() -> str:
 - 미보유: 종목명을 언급하며 보유하지 않음을 안내하세요.
 
 거래내역 응답:
-날짜·수량·가격을 모두 포함해 답하세요. 사용자가 날짜를 잘못 언급하면 실제 날짜로 정정하세요.
+- 도구 결과 "거래내역" 배열의 각 항목을 그대로 나열하세요. 재계산·추측 금지.
+- 종목명이 포함되어 있으므로 "(종목명 미기재)" 같은 표현을 쓰지 마세요.
+- 해요체(~이에요/예요/해요)로 2~4문장 자연스러운 문장으로 답하세요. 번호 목록·불릿(•, -, *)·소제목 형식 금지.
+- 거래내역의 가격은 "체결가"(거래 당시 가격)이에요. "현재가"라고 절대 표현하지 마세요.
+- "시가총액", "amount" 등 잘못된 용어 금지. 가격은 "체결가", 총금액은 "거래금액"으로 표현하세요.
+- 사용자가 "판 종목"을 물었는데 결과 count=0이면 "해당 날짜에 매도 거래가 없어요."라고 안내하세요.
+- 사용자가 날짜를 잘못 언급하면 실제 날짜로 정정하세요.
 
 후속 질문("그 중에 뭐가 좋아?", "비중은?")에는 한두 문장으로 짧게 답하세요.
 이전 대화에 포트폴리오 분석 결과가 있어도 전체를 다시 출력하지 마세요.
@@ -745,6 +823,25 @@ def _run_agent(
                 else:
                     intermediate = messages[turn_start:]
                     logger.info("LLM 최종 응답 (turn=%d)", turn_idx + 1)
+                    if tool_used:
+                        # 툴 결과가 있으므로 answer_system으로 최종 답변 재생성
+                        messages[0] = {"role": "system", "content": _build_answer_system()}
+                        try:
+                            ans_payload = {
+                                "model":   OLLAMA_MODEL,
+                                "messages": messages,
+                                "tools":   [],
+                                "stream":  False,
+                                "options": {"temperature": 0},
+                            }
+                            ans_resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=ans_payload)
+                            ans_resp.raise_for_status()
+                            ans_content = ans_resp.json().get("message", {}).get("content", "").strip()
+                            if len(ans_content) >= 2 and ans_content[0] == '"' and ans_content[-1] == '"':
+                                ans_content = ans_content[1:-1].strip()
+                            return ans_content or content or _FALLBACK_MESSAGE, intermediate
+                        except Exception:
+                            logger.exception("answer_system 재생성 실패, 원본 응답 사용")
                     return content or _FALLBACK_MESSAGE, intermediate
 
             messages.append({"role": "assistant", "tool_calls": tool_calls})
@@ -811,9 +908,24 @@ def _run_agent(
                 messages.append({"role": "tool", "name": name, "content": tool_result})
                 tool_used = True
 
-            # 도구 결과가 모두 추가된 뒤 시스템 프롬프트를 답변 생성용으로 교체
-            if tool_used:
-                messages[0] = {"role": "system", "content": _build_answer_system()}
+                # 거래내역 조회 후 현재가 키워드가 있으면 get_stock_price 자동 실행
+                # llama3.1:8b가 종목목록에서 종목명을 제대로 읽지 못해 환각하는 문제를 방지
+                _PRICE_KW_RE = re.compile(r"현재가|주가|시세|얼마|가격")
+                if name == "get_trade_history" and _PRICE_KW_RE.search(user_message):
+                    try:
+                        _tr = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                        _stocks = _tr.get("종목목록", [])
+                        if _stocks:
+                            _sname = _stocks[0]
+                            logger.info("현재가 자동 연계: %s", _sname)
+                            _price_result = execute_tool("get_stock_price", {"stock_code": _sname})
+                            messages.append({
+                                "role": "assistant",
+                                "tool_calls": [{"function": {"name": "get_stock_price", "arguments": {"stock_code": _sname}}}],
+                            })
+                            messages.append({"role": "tool", "name": "get_stock_price", "content": _price_result})
+                    except Exception:
+                        logger.exception("현재가 자동 연계 실패")
 
     logger.warning("MAX_TURNS(%d) 초과 — fallback 반환", MAX_TURNS)
     return _FALLBACK_MESSAGE, []
@@ -845,14 +957,26 @@ def _extract_last_stock(history: list) -> str | None:
     # 1. 가장 최근 tool 결과 메시지에서 stock_name 추출 (코드가 아닌 이름 우선)
     _STOCK_TOOLS = {"get_stock_price", "get_stock_news"}
     for msg in reversed(recent):
-        if msg.get("role") == "tool" and msg.get("name") in _STOCK_TOOLS:
-            try:
-                data = json.loads(msg["content"]) if isinstance(msg["content"], str) else msg["content"]
-                sname = data.get("stock_name", "")
-                if sname and len(sname) >= 2:
-                    return sname
-            except Exception:
-                pass
+        if msg.get("role") != "tool":
+            continue
+        try:
+            data = json.loads(msg["content"]) if isinstance(msg["content"], str) else msg["content"]
+        except Exception:
+            continue
+        tool_name = msg.get("name", "")
+        if tool_name in _STOCK_TOOLS:
+            sname = data.get("stock_name", "")
+            if sname and len(sname) >= 2:
+                return sname
+        # get_trade_history(recent/by_date) 결과의 종목목록에서 첫 번째 종목 반환
+        if tool_name == "get_trade_history":
+            stocks = data.get("종목목록", [])
+            if stocks:
+                return stocks[0]
+            # by_stock 결과는 stock_name 필드 직접 보유
+            sname = data.get("stock_name", "")
+            if sname and len(sname) >= 2:
+                return sname
 
     # 1-b. tool 결과에 stock_name 없으면 tool_call 인자에서 stock_code 추출
     for msg in reversed(recent):

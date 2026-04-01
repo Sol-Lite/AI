@@ -109,8 +109,14 @@ def apply_hamnida(summary: dict) -> dict:
         summary["market_event"] = [_to_hamnida(s) for s in summary["market_event"]]
     if isinstance(summary.get("one_line_summary"), str):
         summary["one_line_summary"] = _to_hamnida(summary["one_line_summary"])
-    if isinstance(summary.get("market_sentiment"), str):
-        summary["market_sentiment"] = _to_hamnida(summary["market_sentiment"])
+    if isinstance(summary.get("sectors"), list):
+        summary["sectors"] = [_to_hamnida(s) for s in summary["sectors"]]
+    stocks = summary.get("stocks")
+    if isinstance(stocks, dict):
+        if isinstance(stocks.get("up"), list):
+            stocks["up"] = [_to_hamnida(s) for s in stocks["up"]]
+        if isinstance(stocks.get("down"), list):
+            stocks["down"] = [_to_hamnida(s) for s in stocks["down"]]
     return summary
 
 
@@ -216,18 +222,24 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 
     prompt = f"""아래 [기사 내용]을 읽고 분석하여 JSON을 출력하세요.
 주의사항:
-- 코스피, 코스닥에 관한 이벤트는 절대 포함하지 마세요. 나스닥, 해외 시장과 관련 내용만 분석하세요.
+- 코스피, 코스닥에 관한 이벤트는 절대 포함하지 마세요. 나스닥, S&P500, 다우 등 해외 시장과 관련 내용만 분석하세요.
 - [출력 예시]는 형식만 보여주는 가짜 데이터입니다. 예시의 수치, 종목, 문장을 절대 그대로 사용하지 마세요.
-- 반드시 [기사 내용]에 실제로 등장하는 수치, 내용만 사용하세요.
-- market_event, market_sentiment, one_line_summary의 모든 문장은 반드시 '~했습니다.', '~됩니다.', '~입니다.' 형태로 끝내세요. '~다, ~했다.', '~됐다.', '~이다.' 형태는 절대 사용하지 마세요.
-- 모든 텍스트는 반드시 한국어(한글)로만 작성하세요. 한자(漢字)는 절대 사용하지 마세요. 예: '운수업종' (O), '運輸업종' (X)
+- 반드시 [기사 내용]에 실제로 등장하는 수치, 종목명, 섹터명만 사용하세요.
+- market_event, one_line_summary의 모든 문장은 반드시 '~했습니다.', '~됩니다.', '~입니다.' 형태로 끝내세요. '~다, ~했다.', '~됐다.', '~이다.' 형태는 절대 사용하지 마세요.
+- market_event, one_line_summary, sectors는 반드시 한국어(한글)로만 작성하세요. 한자(漢字)는 절대 사용하지 마세요.
+- stocks의 종목명은 기사에 표기된 원문 그대로 사용하세요 (영문: "Nvidia", 한글: "엔비디아" 등 기사 표기 따름).
+- sectors와 stocks에 등장하지 않는 항목은 빈 배열([])로 두세요.
 - 설명이나 마크다운 없이 JSON만 출력하세요.
 
 [JSON 스키마]
 {{
   "date": "날짜 문자열",
   "market_event": ["이벤트1", "이벤트2", ...],
-  "market_sentiment": "시장 심리 요약",
+  "sectors": ["상승/하락 섹터1(등락률)", ...],
+  "stocks": {{
+    "up": ["종목명(등락률)", ...],
+    "down": ["종목명(등락률)", ...]
+  }},
   "one_line_summary": "한줄 요약"
 }}
 
@@ -236,11 +248,15 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
   "date": "2026년 3월 20일",
   "market_event": [
     "간밤 뉴욕 증시는 S&P500(-0.27%), 나스닥(-0.28%), 다우(-0.44%) 소폭 하락 마감했습니다.",
-    "네타냐후 총리의 이란 전쟁 조기 종전 발언으로 브렌트유가 배럴당 106달러까지 급락했습니다.",
+    "연준 금리 동결 결정에도 경기 침체 우려가 커지며 기술주 중심으로 매물이 출회됐습니다.",
     "원/달러 환율은 전일 대비 9원 하락한 1492원으로 안정세를 보였습니다."
   ],
-  "market_sentiment": "지정학적 리스크 완화 기대감과 유가 하락으로 투자 심리가 개선됐습니다. 다만 마이크론(-3.78%) 차익 실현으로 반도체주 변동성이 확대될 수 있습니다.",
-  "one_line_summary": "유가 하락과 환율 안정, 이란 전쟁 조기 종전 기대감으로 코스피는 전일 급락분을 일부 만회하는 상승 출발이 예상됩니다."
+  "sectors": ["기술(-1.2%)", "에너지(+0.8%)", "헬스케어(-0.5%)"],
+  "stocks": {{
+    "up": ["Nvidia(+2.15%)", "Meta(+1.03%)", "Amazon(+0.77%)"],
+    "down": ["Micron(-3.78%)", "Intel(-2.10%)", "Tesla(-1.55%)"]
+  }},
+  "one_line_summary": "연준 금리 동결 발표에도 경기 침체 우려로 기술주가 하락하며 나스닥이 소폭 내렸습니다."
 }}
 
 [기사 내용]
