@@ -1,4 +1,5 @@
 # main.py
+import os
 import re
 import time
 import logging
@@ -12,6 +13,7 @@ from app.chatbot.dispatcher import (
     INTENT_KW, _PORTFOLIO_KW_RE, _PORTFOLIO_COMPARISON_RE, _COMPARISON_RE,
 )
 from app import crawlers as crawler
+from app.core.config import ENABLE_CRAWLERS
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,12 +27,19 @@ _JAMO_RE = re.compile(r"[ㄱ-ㅎㅏ-ㅣ]")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    crawler.start()   # 서버 시작 시 크롤러 백그라운드 스레드 실행
+    if ENABLE_CRAWLERS:
+        crawler.start()   # 서버 시작 시 크롤러 백그라운드 스레드 실행
     yield
-    crawler.stop()    # 서버 종료 시 크롤러 정상 종료
+    if ENABLE_CRAWLERS:
+        crawler.stop()    # 서버 종료 시 크롤러 정상 종료
 
 
 app = FastAPI(title="Investment Chatbot", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "app_env": os.getenv("APP_ENV", "local")}
 
 
 @app.middleware("http")

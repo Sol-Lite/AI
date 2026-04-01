@@ -17,9 +17,7 @@
 import json
 import logging
 import re
-import time
-import httpx
-from app.core.config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from app.core.llm import chat_message, get_provider_name
 from app.templates.guide import _FALLBACK_MESSAGE, _API_ERROR_MESSAGE
 
 logger = logging.getLogger("chatbot.agent")
@@ -778,147 +776,135 @@ def _run_agent(
     turn_start = len(messages)  # tool 메시지가 추가되기 시작하는 인덱스
     tool_used = False  # 도구 결과가 추가된 뒤 답변 프롬프트로 교체하기 위한 플래그
 
-    with httpx.Client(timeout=120) as client:
-        for turn_idx in range(MAX_TURNS):
-            payload = {
-                "model":    OLLAMA_MODEL,
-                "messages": messages,
-                "tools":    tools,
-                "stream":   False,
-                "options":  {"temperature": 0},
-            }
-            _llm_start = time.time()
-            logger.info("LLM 호출 시작 (turn=%d, model=%s)", turn_idx + 1, OLLAMA_MODEL)
-            try:
-                resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=payload)
-                resp.raise_for_status()
-                logger.info("LLM 응답 수신 (turn=%d, %.2fs)", turn_idx + 1, time.time() - _llm_start)
-            except httpx.TimeoutException:
-                logger.error("LLM 타임아웃 (turn=%d, %.2fs 초과)", turn_idx + 1, time.time() - _llm_start)
-                return _API_ERROR_MESSAGE, []
-            except Exception:
-                logger.exception("LLM 호출 오류 (turn=%d)", turn_idx + 1)
-                return _API_ERROR_MESSAGE, []
+    provider = get_provider_name()
+    for turn_idx in range(MAX_TURNS):
+        logger.info("LLM 호출 시작 (turn=%d, provider=%s)", turn_idx + 1, provider)
+        try:
+            message = chat_message(
+                messages=messages,
+                tools=tools,
+                temperature=0,
+                max_tokens=1024,
+            )
+            logger.info("LLM 응답 수신 (turn=%d)", turn_idx + 1)
+        except Exception:
+            logger.exception("LLM 호출 오류 (turn=%d, provider=%s)", turn_idx + 1, provider)
+            return _API_ERROR_MESSAGE, []
 
-            data       = resp.json()
-            message    = data.get("message", {})
-            tool_calls = message.get("tool_calls") or []
+        tool_calls = message.get("tool_calls") or []
 
-            if not tool_calls:
-                content = message.get("content", "").strip()
-                # LLM이 응답을 따옴표로 감싸는 경우 제거 (예: '"삼성전자 현재가는..."')
-                if len(content) >= 2 and content[0] == '"' and content[-1] == '"':
-                    content = content[1:-1].strip()
-                # LLM이 function call 대신 텍스트로 tool call을 작성한 경우 직접 실행
-                synthetic = _parse_text_tool_call(content)
-                if synthetic:
-                    tool_calls = [synthetic]
-                else:
-                    intermediate = messages[turn_start:]
-                    logger.info("LLM 최종 응답 (turn=%d)", turn_idx + 1)
-                    if tool_used:
-                        # 툴 결과가 있으므로 answer_system으로 최종 답변 재생성
-                        messages[0] = {"role": "system", "content": _build_answer_system()}
-                        try:
-                            ans_payload = {
-                                "model":   OLLAMA_MODEL,
-                                "messages": messages,
-                                "tools":   [],
-                                "stream":  False,
-                                "options": {"temperature": 0},
-                            }
-                            ans_resp = client.post(f"{OLLAMA_BASE_URL}/api/chat", json=ans_payload)
-                            ans_resp.raise_for_status()
-                            ans_content = ans_resp.json().get("message", {}).get("content", "").strip()
-                            if len(ans_content) >= 2 and ans_content[0] == '"' and ans_content[-1] == '"':
-                                ans_content = ans_content[1:-1].strip()
-                            return ans_content or content or _FALLBACK_MESSAGE, intermediate
-                        except Exception:
-                            logger.exception("answer_system 재생성 실패, 원본 응답 사용")
-                    return content or _FALLBACK_MESSAGE, intermediate
-
-            messages.append({"role": "assistant", "tool_calls": tool_calls})
-            for call in tool_calls:
-                fn   = call.get("function", {})
-                name = fn.get("name", "")
-                args = fn.get("arguments") or {}
-                if isinstance(args, str):
+        if not tool_calls:
+            content = message.get("content", "").strip()
+            # LLM이 응답을 따옴표로 감싸는 경우 제거 (예: '"삼성전자 현재가는..."')
+            if len(content) >= 2 and content[0] == '"' and content[-1] == '"':
+                content = content[1:-1].strip()
+            # LLM이 function call 대신 텍스트로 tool call을 작성한 경우 직접 실행
+            synthetic = _parse_text_tool_call(content)
+            if synthetic:
+                tool_calls = [synthetic]
+            else:
+                intermediate = messages[turn_start:]
+                logger.info("LLM 최종 응답 (turn=%d)", turn_idx + 1)
+                if tool_used:
+                    # 툴 결과가 있으므로 answer_system으로 최종 답변 재생성
+                    messages[0] = {"role": "system", "content": _build_answer_system()}
                     try:
-                        args = json.loads(args)
-                    except json.JSONDecodeError:
-                        args = {}
-                logger.info("툴 호출: %s(%s)", name, args)
-                try:
-                    tool_result = execute_tool(name, args)
-                except Exception as e:
-                    logger.exception("툴 실행 오류: %s", name)
-                    tool_result = json.dumps({"error": str(e)}, ensure_ascii=False)
+                        ans_message = chat_message(
+                            messages=messages,
+                            tools=[],
+                            temperature=0,
+                            max_tokens=1024,
+                        )
+                        ans_content = ans_message.get("content", "").strip()
+                        if len(ans_content) >= 2 and ans_content[0] == '"' and ans_content[-1] == '"':
+                            ans_content = ans_content[1:-1].strip()
+                        return ans_content or content or _FALLBACK_MESSAGE, intermediate
+                    except Exception:
+                        logger.exception("answer_system 재생성 실패, 원본 응답 사용")
+                return content or _FALLBACK_MESSAGE, intermediate
 
-                # 에러 결과를 LLM으로 다시 보내면 환각 발생 → 즉시 종료
+        messages.append({"role": "assistant", "tool_calls": tool_calls})
+        for call in tool_calls:
+            fn   = call.get("function", {})
+            name = fn.get("name", "")
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
                 try:
-                    _parsed = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
-                    if isinstance(_parsed, dict) and _parsed.get("error"):
-                        logger.warning("툴 에러 응답: %s → %s", name, _parsed.get("error"))
-                        intermediate = messages[turn_start:]
-                        if name == "get_stock_news":
-                            stock_name = args.get("stock_code", "해당 종목")
-                            return f"{stock_name}의 뉴스는 아직 수집되지 않았어요.", intermediate
-                        return _API_ERROR_MESSAGE, intermediate
+                    args = json.loads(args)
+                except json.JSONDecodeError:
+                    args = {}
+            logger.info("툴 호출: %s(%s)", name, args)
+            try:
+                tool_result = execute_tool(name, args)
+            except Exception as e:
+                logger.exception("툴 실행 오류: %s", name)
+                tool_result = json.dumps({"error": str(e)}, ensure_ascii=False)
+
+            # 에러 결과를 LLM으로 다시 보내면 환각 발생 → 즉시 종료
+            try:
+                _parsed = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                if isinstance(_parsed, dict) and _parsed.get("error"):
+                    logger.warning("툴 에러 응답: %s → %s", name, _parsed.get("error"))
+                    intermediate = messages[turn_start:]
+                    if name == "get_stock_news":
+                        stock_name = args.get("stock_code", "해당 종목")
+                        return f"{stock_name}의 뉴스는 아직 수집되지 않았어요.", intermediate
+                    return _API_ERROR_MESSAGE, intermediate
+            except Exception:
+                pass
+
+            # get_portfolio_info(holdings/risk) 결과에 특정 종목이 없으면 즉시 "미보유" 반환
+            # returns/sector/stats 는 종목별 데이터가 없으므로 체크 제외
+            # 포트폴리오 비교/분석 문맥(가장, 수익률, 리스크 등)은 특정 종목 질문이 아니므로 체크 제외
+            _PORTFOLIO_ANALYSIS_KW = re.compile(
+                r"가장|제일|젤|수익률|리스크|분석|비중|비율|높은|낮은|많이|적게|오른|내린"
+                r"|평가손익|실현손익|손익|수익금|손실금|평가액|MDD|mdd|변동성|승률|손익비"
+            )
+            # 미보유 체크: holdings 타입에서만, 분석 키워드 없을 때만 실행
+            # risk 타입은 포트폴리오 전체 지표 조회이므로 종목 보유 여부 체크 제외
+            if (
+                name == "get_portfolio_info"
+                and args.get("info_type") == "holdings"
+                and not _PORTFOLIO_ANALYSIS_KW.search(user_message)
+            ):
+                try:
+                    _pf = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                    from app.stock_ref import resolve_from_csv, _normalize_message as _nm
+                    _code, _sname = resolve_from_csv(_nm(user_message))
+                    # 추출된 종목명이 실제 메시지에 포함되지 않으면 대명사/오매칭 → 스킵
+                    if _code and _sname and _sname in user_message:
+                        _all = (
+                            [h.get("stock_name", h.get("name", "")) for h in _pf.get("holdings", [])]
+                            + [s.get("name", "") for s in _pf.get("stock_returns", [])]
+                            + [_pf.get("best_stock", {}).get("name", "")]
+                            + [_pf.get("worst_stock", {}).get("name", "")]
+                        )
+                        if _sname not in _all:
+                            return f"{_sname}은(는) 현재 보유 종목이 아니에요.", messages[turn_start:]
                 except Exception:
                     pass
 
-                # get_portfolio_info(holdings/risk) 결과에 특정 종목이 없으면 즉시 "미보유" 반환
-                # returns/sector/stats 는 종목별 데이터가 없으므로 체크 제외
-                # 포트폴리오 비교/분석 문맥(가장, 수익률, 리스크 등)은 특정 종목 질문이 아니므로 체크 제외
-                _PORTFOLIO_ANALYSIS_KW = re.compile(
-                    r"가장|제일|젤|수익률|리스크|분석|비중|비율|높은|낮은|많이|적게|오른|내린"
-                    r"|평가손익|실현손익|손익|수익금|손실금|평가액|MDD|mdd|변동성|승률|손익비"
-                )
-                # 미보유 체크: holdings 타입에서만, 분석 키워드 없을 때만 실행
-                # risk 타입은 포트폴리오 전체 지표 조회이므로 종목 보유 여부 체크 제외
-                if (
-                    name == "get_portfolio_info"
-                    and args.get("info_type") == "holdings"
-                    and not _PORTFOLIO_ANALYSIS_KW.search(user_message)
-                ):
-                    try:
-                        _pf = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
-                        from app.stock_ref import resolve_from_csv, _normalize_message as _nm
-                        _code, _sname = resolve_from_csv(_nm(user_message))
-                        # 추출된 종목명이 실제 메시지에 포함되지 않으면 대명사/오매칭 → 스킵
-                        if _code and _sname and _sname in user_message:
-                            _all = (
-                                [h.get("stock_name", h.get("name", "")) for h in _pf.get("holdings", [])]
-                                + [s.get("name", "") for s in _pf.get("stock_returns", [])]
-                                + [_pf.get("best_stock", {}).get("name", "")]
-                                + [_pf.get("worst_stock", {}).get("name", "")]
-                            )
-                            if _sname not in _all:
-                                return f"{_sname}은(는) 현재 보유 종목이 아니에요.", messages[turn_start:]
-                    except Exception:
-                        pass
+            messages.append({"role": "tool", "name": name, "content": tool_result})
+            tool_used = True
 
-                messages.append({"role": "tool", "name": name, "content": tool_result})
-                tool_used = True
-
-                # 거래내역 조회 후 현재가 키워드가 있으면 get_stock_price 자동 실행
-                # llama3.1:8b가 종목목록에서 종목명을 제대로 읽지 못해 환각하는 문제를 방지
-                _PRICE_KW_RE = re.compile(r"현재가|주가|시세|얼마|가격")
-                if name == "get_trade_history" and _PRICE_KW_RE.search(user_message):
-                    try:
-                        _tr = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
-                        _stocks = _tr.get("종목목록", [])
-                        if _stocks:
-                            _sname = _stocks[0]
-                            logger.info("현재가 자동 연계: %s", _sname)
-                            _price_result = execute_tool("get_stock_price", {"stock_code": _sname})
-                            messages.append({
-                                "role": "assistant",
-                                "tool_calls": [{"function": {"name": "get_stock_price", "arguments": {"stock_code": _sname}}}],
-                            })
-                            messages.append({"role": "tool", "name": "get_stock_price", "content": _price_result})
-                    except Exception:
-                        logger.exception("현재가 자동 연계 실패")
+            # 거래내역 조회 후 현재가 키워드가 있으면 get_stock_price 자동 실행
+            # llama3.1:8b가 종목목록에서 종목명을 제대로 읽지 못해 환각하는 문제를 방지
+            _PRICE_KW_RE = re.compile(r"현재가|주가|시세|얼마|가격")
+            if name == "get_trade_history" and _PRICE_KW_RE.search(user_message):
+                try:
+                    _tr = json.loads(tool_result) if isinstance(tool_result, str) else tool_result
+                    _stocks = _tr.get("종목목록", [])
+                    if _stocks:
+                        _sname = _stocks[0]
+                        logger.info("현재가 자동 연계: %s", _sname)
+                        _price_result = execute_tool("get_stock_price", {"stock_code": _sname})
+                        messages.append({
+                            "role": "assistant",
+                            "tool_calls": [{"function": {"name": "get_stock_price", "arguments": {"stock_code": _sname}}}],
+                        })
+                        messages.append({"role": "tool", "name": "get_stock_price", "content": _price_result})
+                except Exception:
+                    logger.exception("현재가 자동 연계 실패")
 
     logger.warning("MAX_TURNS(%d) 초과 — fallback 반환", MAX_TURNS)
     return _FALLBACK_MESSAGE, []
@@ -1296,4 +1282,3 @@ def ask_general(user_context: dict, user_message: str) -> tuple[str, list]:
     execute_tool = _make_executor(account_id)
     response, tool_context = _run_agent(enriched_message, _TOOLS, execute_tool, history)
     return response, tool_context
-

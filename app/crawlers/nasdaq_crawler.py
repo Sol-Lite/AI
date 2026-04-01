@@ -20,13 +20,13 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
 
-from app.core.config import MONGO_URI, OLLAMA_BASE_URL, OLLAMA_MODEL
+from app.core.config import MONGO_URI
+from app.core.llm import generate_json_content, get_provider_name
 
 # ── 크롤링 설정 ───────────────────────────────────────────────
 SEARCH_URL   = "https://search.hankyung.com/search/total"
 SEARCH_QUERY = "[뉴욕 증시 브리핑]"
 ARTICLE_BASE = "https://www.hankyung.com"
-OLLAMA_URL   = f"{OLLAMA_BASE_URL}/api/generate"
 
 HEADERS = {
     "User-Agent": (
@@ -262,29 +262,17 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
 [기사 내용]
 {content}
 
-위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
+    위 기사를 분석해 {date_str} 기준 JSON을 출력하세요."""
 
     try:
-        r = requests.post(
-            OLLAMA_URL,
-            json={
-                "model":   OLLAMA_MODEL,
-                "prompt":  prompt,
-                "format":  "json",
-                "stream":  False,
-                "options": {"num_predict": 2048},
-            },
-            timeout=180,
-        )
-        r.raise_for_status()
-        raw = r.json().get("response", "{}")
+        raw = generate_json_content(prompt, temperature=0.1, max_tokens=2048)
         try:
             result = json.loads(raw)
         except json.JSONDecodeError:
             result = json.loads(repair_json(raw))
         return apply_hamnida(result)
     except Exception as e:
-        print(f"  ollama 요약 실패: {e}")
+        print(f"  {get_provider_name()} 요약 실패: {e}")
         return {}
 
 
