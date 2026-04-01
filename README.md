@@ -93,7 +93,7 @@ dispatcher.pre_dispatch(intent, params, message)
       │  문맥 기반 intent 보정
       │  · 손익 키워드 + chart_price → unknown
       │  · 보유 종목 비교 → unknown (agent)
-      │  · 명시적 종목 2개+ 비교 → unknown (agent)
+      │  · 명시적 종목 2개+ 비교 → chart_price (multi_stock: True → 단일 종목 안내)
       │  · 매수/매도 추천 질문 → invest_advice (안내문구)
       │  · 종목 미지정 + 명시적 토큰 있음 → stock_not_found
       │  · 종목 미지정 + follow-up → 히스토리에서 마지막 종목 추출

@@ -480,7 +480,7 @@
           <div class="folder-file"><span class="fname key">router.py</span><span class="fdesc">정규식으로 15가지 의도 감지, 파라미터 추출</span></div>
           <div class="folder-file"><span class="fname key">dispatcher.py</span><span class="fdesc">라우팅 상수 + dispatch / try_shortcut / pre_dispatch</span></div>
           <div class="folder-file"><span class="fname key">handlers.py</span><span class="fdesc">intent별 핸들러 함수 (_handle_*) — 데이터 조회 → 포맷 반환</span></div>
-          <div class="folder-file"><span class="fname">session.py</span><span class="fdesc">세션 히스토리 분석 헬퍼 (직전 tool 감지, 비교 맥락 감지)</span></div>
+          <div class="folder-file"><span class="fname">session.py</span><span class="fdesc">세션 히스토리 분석 헬퍼 (직전 tool 감지)</span></div>
         </div>
       </div>
 
@@ -622,7 +622,7 @@
         </div>
         <div class="flow-body">
           <h4>의도 보정 (dispatcher.pre_dispatch)</h4>
-          <p>감지된 의도가 문맥상 맞는지 확인합니다. 보유 종목 비교 → 에이전트, 명시적 종목 2개+ → 비교 템플릿, 매수/매도 추천 질문 → 안내문구, 종목 미지정 → 히스토리 fallback 또는 "종목명을 입력해 주세요" 처리.</p>
+          <p>감지된 의도가 문맥상 맞는지 확인합니다. 보유 종목 비교 → 에이전트, 명시적 종목 2개+ → 단일 종목 안내, 매수/매도 추천 질문 → 안내문구, 종목 미지정 → 히스토리 fallback 또는 "종목명을 입력해 주세요" 처리.</p>
         </div>
       </div>
 
