@@ -60,10 +60,13 @@ chmod +x build_and_push.sh update_endpoint.sh
 AWS_REGION=ap-northeast-2 \
 ECR_REPOSITORY=sollite-ollama-proxy \
 IMAGE_TAG=$(git rev-parse --short HEAD) \
+DOCKER_PLATFORM=linux/amd64 \
 ./build_and_push.sh
 ```
 
 출력 마지막 줄의 `IMAGE_URI=...` 값을 다음 단계에서 사용합니다.
+
+맥에서 빌드할 때는 `linux/amd64`를 유지해야 합니다. SageMaker GPU endpoint는 x86_64 기준으로 맞추는 편이 안전합니다.
 
 ## Update Endpoint
 
