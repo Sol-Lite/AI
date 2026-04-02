@@ -12,4 +12,6 @@ for i in $(seq 1 10); do
 done
 
 echo "Health check failed after 10 attempts"
+systemctl status sol-lite-ai --no-pager || true
+journalctl -u sol-lite-ai -n 100 --no-pager || true
 exit 1
