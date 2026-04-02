@@ -612,7 +612,10 @@ def _build_tool_system() -> str:
 
 [도구 선택 규칙]
 수치가 필요한 질문은 반드시 도구를 먼저 호출하세요. 수치를 직접 생성하는 것은 절대 금지입니다.
-도구가 필요하면 반드시 function call(tool_calls) 형식을 사용하세요. 텍스트로 도구를 호출하는 것은 금지입니다.
+도구가 필요하면 native function call(tool_calls) 형식을 우선 사용하세요.
+native function calling이 지원되지 않는 환경에서는 아래 텍스트 형식 한 줄로만 도구를 호출하세요.
+- 단일 인자 예: get_stock_price(삼성전자)
+- 다중 인자 예: get_trade_history({{"query_type":"recent","side":"buy","limit":1}})
 도구 인자의 종목명은 반드시 한국어로 입력하세요 (삼성전자, SK하이닉스 — Samsung 금지).
 
 도구 선택 기준:
@@ -731,7 +734,8 @@ def _build_answer_system() -> str:
 # ── 텍스트 형식 tool call fallback ───────────────────────────────────────────
 
 _TEXT_TOOL_RE = re.compile(
-    r'^(get_stock_price|get_stock_news|get_portfolio_info|get_trade_history|get_market_summary)\s*\(([^)]*)\)\s*$'
+    r'^(get_stock_price|get_stock_news|get_portfolio_info|get_trade_history|get_market_summary)\s*\((.*)\)\s*$',
+    re.DOTALL,
 )
 _TOOL_ARG_KEY = {
     "get_stock_price":    "stock_code",
@@ -744,15 +748,27 @@ _TOOL_ARG_KEY = {
 
 def _parse_text_tool_call(content: str) -> dict | None:
     """
-    LLM이 function call 대신 텍스트로 "get_stock_price(삼성전자)" 같이 출력한 경우를 감지합니다.
+    LLM이 function call 대신 텍스트로 "get_stock_price(삼성전자)" 또는
+    "get_trade_history({"query_type":"recent"})" 같이 출력한 경우를 감지합니다.
     감지되면 tool_calls 형식으로 변환해 반환합니다.
     """
     m = _TEXT_TOOL_RE.match(content.strip())
     if not m:
         return None
     tool_name = m.group(1)
-    arg_val   = m.group(2).strip().strip("\"'")
-    arg_key   = _TOOL_ARG_KEY.get(tool_name, "stock_code")
+    raw_args  = m.group(2).strip()
+
+    if raw_args.startswith("{") and raw_args.endswith("}"):
+        try:
+            parsed_args = json.loads(raw_args)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed_args, dict):
+            return {"function": {"name": tool_name, "arguments": parsed_args}}
+        return None
+
+    arg_val = raw_args.strip("\"'")
+    arg_key = _TOOL_ARG_KEY.get(tool_name, "stock_code")
     return {"function": {"name": tool_name, "arguments": {arg_key: arg_val}}}
 
 
