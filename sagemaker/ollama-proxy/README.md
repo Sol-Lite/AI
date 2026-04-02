@@ -67,6 +67,7 @@ DOCKER_PLATFORM=linux/amd64 \
 출력 마지막 줄의 `IMAGE_URI=...` 값을 다음 단계에서 사용합니다.
 
 맥에서 빌드할 때는 `linux/amd64`를 유지해야 합니다. SageMaker GPU endpoint는 x86_64 기준으로 맞추는 편이 안전합니다.
+또한 SageMaker는 `application/vnd.oci.image.index.v1+json` 이미지를 거부할 수 있으므로, 스크립트는 `buildx --load` 후 `docker push`로 단일 manifest 이미지를 올리도록 맞춰져 있습니다.
 
 ## Update Endpoint
 
