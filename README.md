@@ -474,8 +474,11 @@ Content-Type: application/json
 ```env
 JWT_SECRET_KEY=<secret>
 
+LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
+SAGEMAKER_ENDPOINT_NAME=
+SAGEMAKER_RUNTIME_MODE=tgi
 
 ORACLE_DSN=<host>:<port>/<service>
 ORACLE_USER=<user>
@@ -486,6 +489,17 @@ MONGO_DB=sollite
 
 SPRING_BASE_URL=http://localhost:8080
 ```
+
+SageMaker 안에 Ollama 커스텀 컨테이너를 쓸 때는 아래처럼 바꿉니다.
+
+```env
+LLM_PROVIDER=sagemaker
+SAGEMAKER_RUNTIME_MODE=ollama_proxy
+SAGEMAKER_ENDPOINT_NAME=<custom-endpoint-name>
+OLLAMA_MODEL=llama3.1:8b
+```
+
+배포 절차와 커스텀 컨테이너 스펙은 [sagemaker/ollama-proxy/README.md](/Users/inter4259/project/Sol-Lite/AI/sagemaker/ollama-proxy/README.md)에 정리했습니다.
 
 ### 실행
 

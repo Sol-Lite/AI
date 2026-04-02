@@ -13,6 +13,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 SAGEMAKER_ENDPOINT_NAME = os.getenv("SAGEMAKER_ENDPOINT_NAME", "")
+SAGEMAKER_RUNTIME_MODE = os.getenv("SAGEMAKER_RUNTIME_MODE", "tgi").strip().lower()
 AWS_REGION              = os.getenv("AWS_REGION", "ap-northeast-2")
 LLM_TIMEOUT_SECONDS     = float(os.getenv("LLM_TIMEOUT_SECONDS", "120"))
 

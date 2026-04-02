@@ -1,8 +1,10 @@
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
+from json_repair import repair_json
 
 from app.core.config import (
     AWS_REGION,
@@ -11,6 +13,7 @@ from app.core.config import (
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
     SAGEMAKER_ENDPOINT_NAME,
+    SAGEMAKER_RUNTIME_MODE,
 )
 
 logger = logging.getLogger("llm")
@@ -144,6 +147,116 @@ def _invoke_sagemaker_text_generation(
     return text
 
 
+def _invoke_sagemaker_ollama_proxy(payload: dict) -> dict:
+    response = _get_sagemaker_client().invoke_endpoint(
+        EndpointName=SAGEMAKER_ENDPOINT_NAME,
+        ContentType="application/json",
+        Body=json.dumps(payload, ensure_ascii=False),
+    )
+    data = json.loads(response["Body"].read())
+    if not isinstance(data, dict):
+        raise ValueError(f"Unexpected Ollama proxy response shape: {data}")
+    return data
+
+
+def _json_candidates(text: str) -> list[str]:
+    stripped = text.strip()
+    candidates: list[str] = []
+    if stripped:
+        candidates.append(stripped)
+
+    for match in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE):
+        block = match.group(1).strip()
+        if block:
+            candidates.append(block)
+
+    for open_ch, close_ch in (("{", "}"), ("[", "]")):
+        start = stripped.find(open_ch)
+        end = stripped.rfind(close_ch)
+        if start != -1 and end != -1 and start < end:
+            snippet = stripped[start:end + 1].strip()
+            if snippet:
+                candidates.append(snippet)
+
+    seen = set()
+    unique: list[str] = []
+    for cand in candidates:
+        if cand not in seen:
+            seen.add(cand)
+            unique.append(cand)
+    return unique
+
+
+def _coerce_json_text(text: str) -> str | None:
+    for candidate in _json_candidates(text):
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, (dict, list)):
+                return json.dumps(parsed, ensure_ascii=False)
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            repaired = repair_json(candidate)
+            parsed = json.loads(repaired)
+            if isinstance(parsed, (dict, list)):
+                return json.dumps(parsed, ensure_ascii=False)
+        except Exception:
+            pass
+    return None
+
+
+def _invoke_sagemaker_json_generation(
+    prompt: str,
+    max_tokens: int = 2048,
+) -> str:
+    strict_prompt = (
+        "당신은 JSON API입니다.\n"
+        "반드시 유효한 JSON 하나만 출력하세요.\n"
+        "마크다운, 코드블록, 설명, 파이썬 코드, 예시는 절대 출력하지 마세요.\n"
+        "응답의 첫 글자는 { 또는 [ 이어야 하고 마지막 글자는 } 또는 ] 이어야 합니다.\n\n"
+        f"{prompt}"
+    )
+    raw = _invoke_sagemaker_text_generation(
+        prompt=strict_prompt,
+        temperature=0,
+        max_tokens=max_tokens,
+    )
+    coerced = _coerce_json_text(raw)
+    if coerced:
+        return coerced
+
+    logger.warning(
+        "SageMaker JSON 정규화 실패, 재시도합니다: %s",
+        raw[:300].replace("\n", " "),
+    )
+    repair_prompt = (
+        "다음 텍스트를 의미를 유지한 유효한 JSON 하나로 다시 작성하세요.\n"
+        "설명 없이 JSON만 출력하세요.\n\n"
+        f"{raw}"
+    )
+    repaired_raw = _invoke_sagemaker_text_generation(
+        prompt=repair_prompt,
+        temperature=0,
+        max_tokens=max_tokens,
+    )
+    coerced = _coerce_json_text(repaired_raw)
+    if coerced:
+        return coerced
+
+    raise ValueError(
+        "SageMaker JSON coercion failed. "
+        f"raw={raw[:300]!r}, repaired={repaired_raw[:300]!r}"
+    )
+
+
+def _normalize_json_output(raw: str, source: str) -> str:
+    coerced = _coerce_json_text(raw)
+    if coerced:
+        return coerced
+    raise ValueError(f"{source} returned non-JSON output: {raw[:300]!r}")
+
+
 def chat_message(
     messages: list[dict],
     tools: list | None = None,
@@ -154,6 +267,22 @@ def chat_message(
     provider = get_provider_name()
 
     if provider == "sagemaker":
+        if SAGEMAKER_RUNTIME_MODE == "ollama_proxy":
+            payload = {
+                "route": "chat",
+                "model": OLLAMA_MODEL,
+                "messages": messages,
+                "tools": tools or [],
+                "tool_choice": tool_choice,
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+            data = _invoke_sagemaker_ollama_proxy(payload)
+            return data.get("message", {})
+
         prompt = _serialize_messages_for_sagemaker(messages, tools)
         text = _invoke_sagemaker_text_generation(
             prompt=prompt,
@@ -183,11 +312,22 @@ def generate_json_content(
     provider = get_provider_name()
 
     if provider == "sagemaker":
-        return _invoke_sagemaker_text_generation(
-            prompt=prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        if SAGEMAKER_RUNTIME_MODE == "ollama_proxy":
+            payload = {
+                "route": "generate",
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "format": "json",
+                "stream": False,
+                "options": {
+                    "temperature": temperature,
+                    "num_predict": max_tokens,
+                },
+            }
+            data = _invoke_sagemaker_ollama_proxy(payload)
+            return _normalize_json_output(data.get("response", "{}"), "SageMaker Ollama proxy")
+
+        return _invoke_sagemaker_json_generation(prompt=prompt, max_tokens=max_tokens)
 
     payload = {
         "model": OLLAMA_MODEL,
@@ -199,4 +339,4 @@ def generate_json_content(
     with httpx.Client(timeout=LLM_TIMEOUT_SECONDS) as client:
         response = client.post(f"{OLLAMA_BASE_URL}/api/generate", json=payload)
         response.raise_for_status()
-    return response.json().get("response", "{}")
+    return _normalize_json_output(response.json().get("response", "{}"), "Ollama")

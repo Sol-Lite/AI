@@ -131,6 +131,9 @@ def _process_one(meta: dict) -> None:
         return
 
     summary = summarize_with_ollama(content, meta.get("published_at"))
+    if not summary:
+        print("  유효한 요약이 없어 저장 건너뜀")
+        return
 
     clean_title = re.sub(r'\[뉴욕\s*증시\s*브리핑\]\s*', '', meta["title"]).strip()
 

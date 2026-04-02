@@ -125,6 +125,13 @@ def apply_hamnida(summary: dict) -> dict:
     return summary
 
 
+def _is_valid_summary(summary: dict) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    one_line = summary.get("one_line_summary")
+    return isinstance(one_line, str) and bool(one_line.strip())
+
+
 # ═══════════════════════════════════════════════════════════════
 # REST API로 오늘 기사 목록 수집
 # ═══════════════════════════════════════════════════════════════
@@ -268,7 +275,10 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
             result = json.loads(raw)
         except json.JSONDecodeError:
             result = json.loads(repair_json(raw))
-        return apply_hamnida(result)
+        result = apply_hamnida(result)
+        if not _is_valid_summary(result):
+            raise ValueError(f"invalid summary schema: {result}")
+        return result
     except Exception as e:
         print(f"  {get_provider_name()} 요약 실패: {e}")
         return {}
@@ -291,11 +301,18 @@ def run_job() -> None:
     for i, article in enumerate(articles, 1):
         print(f"  [{i}/{len(articles)}] 요약 중: {article['title'][:45]}")
         summary = summarize_with_ollama(article["content"], article.get("published_at"))
+        if not summary:
+            print("    유효한 요약이 없어 저장 건너뜀")
+            continue
         docs.append({
             **article,
             "summary":    summary,
             "fetched_at": datetime.now(),
         })
+
+    if not docs:
+        print("  유효한 요약 결과가 없어 저장 건너뜀")
+        return
 
     for doc in docs:
         collection.update_one(
