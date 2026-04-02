@@ -25,12 +25,14 @@ aws ecr get-login-password --region "${AWS_REGION}" | \
     --username AWS \
     --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
-echo "[build] building and pushing image: ${IMAGE_URI} (${DOCKER_PLATFORM})"
-docker buildx build \
+echo "[build] building image: ${IMAGE_URI} (${DOCKER_PLATFORM})"
+docker build \
   --platform "${DOCKER_PLATFORM}" \
   -t "${IMAGE_URI}" \
-  --push \
   "${SCRIPT_DIR}"
+
+echo "[build] pushing image"
+docker push "${IMAGE_URI}"
 
 echo "[build] done"
 echo "IMAGE_URI=${IMAGE_URI}"
