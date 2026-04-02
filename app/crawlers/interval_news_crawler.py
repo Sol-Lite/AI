@@ -11,6 +11,7 @@ news2day.co.kr 마감시황 인터벌 크롤러
 import threading
 import time
 from datetime import datetime, timezone, timedelta, date as date_type
+from urllib.parse import parse_qs, urlparse
 
 import certifi
 import requests
@@ -41,7 +42,14 @@ HEADERS = {
 KST = timezone(timedelta(hours=9))
 
 # ── MongoDB 연결 ─────────────────────────────────────────────────
-_client     = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+def _build_mongo_client(uri: str) -> MongoClient:
+    tls_value = parse_qs(urlparse(uri).query).get("tls", [None])[0]
+    if tls_value and tls_value.lower() == "false":
+        return MongoClient(uri)
+    return MongoClient(uri, tlsCAFile=certifi.where())
+
+
+_client     = _build_mongo_client(MONGO_URI)
 _collection = _client["sollite"]["news"]
 
 
