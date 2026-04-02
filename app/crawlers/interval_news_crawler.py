@@ -119,6 +119,9 @@ def fetch_article_for_date(target_date: date_type) -> dict | None:
 def _process_one(article: dict) -> None:
     print(f"  처리 중: {article['title'][:50]}")
     summary = summarize_with_ollama(article["content"], article.get("published_at"))
+    if not summary:
+        print("  유효한 요약이 없어 저장 건너뜀")
+        return
     doc = {
         **article,
         "summary":    summary,

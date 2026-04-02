@@ -120,6 +120,13 @@ def apply_hamnida(summary: dict) -> dict:
     return summary
 
 
+def _is_valid_summary(summary: dict) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    one_line = summary.get("one_line_summary")
+    return isinstance(one_line, str) and bool(one_line.strip())
+
+
 # ═══════════════════════════════════════════════════════════════
 # 검색 결과에서 오늘 최신 기사 1건 추출
 # ═══════════════════════════════════════════════════════════════
@@ -270,7 +277,10 @@ def summarize_with_ollama(content: str, published_at: datetime = None) -> dict:
             result = json.loads(raw)
         except json.JSONDecodeError:
             result = json.loads(repair_json(raw))
-        return apply_hamnida(result)
+        result = apply_hamnida(result)
+        if not _is_valid_summary(result):
+            raise ValueError(f"invalid summary schema: {result}")
+        return result
     except Exception as e:
         print(f"  {get_provider_name()} 요약 실패: {e}")
         return {}
@@ -302,6 +312,9 @@ def run_job() -> None:
 
     print("  요약 중...")
     summary = summarize_with_ollama(content, meta.get("published_at"))
+    if not summary:
+        print("  유효한 요약이 없어 저장 건너뜀")
+        return
 
     clean_title = re.sub(r'\[뉴욕\s*증시\s*브리핑\]\s*', '', meta["title"]).strip()
 
