@@ -1,5 +1,5 @@
 import threading
-from transformers import PreTrainedTokenizerFast, BartForConditionalGeneration
+from transformers import AutoTokenizer, BartForConditionalGeneration
 
 MODEL_NAME = "EbanLee/kobart-summary-v3"
 MAX_INPUT_LEN = 1026
@@ -15,8 +15,10 @@ def _load_model():
     with _lock:
         if _tokenizer is None:
             print(f"모델 로딩 중: {MODEL_NAME}")
-            _tokenizer = PreTrainedTokenizerFast.from_pretrained(
-                MODEL_NAME, local_files_only=True
+            _tokenizer = AutoTokenizer.from_pretrained(
+                MODEL_NAME,
+                local_files_only=True,
+                use_fast=False,
             )
             _model = BartForConditionalGeneration.from_pretrained(
                 MODEL_NAME, local_files_only=True
