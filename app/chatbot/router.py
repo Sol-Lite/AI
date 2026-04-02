@@ -230,7 +230,7 @@ _PATTERNS: dict[str, list[str]] = {
         r"미국\s*지수",
         r"코스피",
         r"코스닥",
-        r"나스닥",
+        r"나스닥(?!\s*(순위|랭킹|상위|종목|주식|거래량|거래대금|상한가|하한가|급등|급락|상승|하락|시총|시가총액|많이))",
         r"s&p",
         r"sp\s*500",
         r"에스앤피",
@@ -363,6 +363,13 @@ def detect(message: str) -> tuple[str, dict]:
     if _is_followup(msg):
         return "unknown", {}
 
+    # 나스닥/뉴욕 + 랭킹 키워드 조합 → ranking 강제 라우팅 (index보다 먼저 체크)
+    if re.search(r"나스닥|nasdaq|뉴욕|nyse", msg, re.IGNORECASE) and re.search(
+        r"순위|랭킹|거래량|거래대금|상한가|하한가|급등|급락|상승주|하락주|시총|시가총액|많이\s*(오른|내린)",
+        msg, re.IGNORECASE
+    ):
+        return "ranking", _extract_params("ranking", msg)
+
     # 국내+해외 시황 동시 요청 — korea/us_summary보다 먼저 체크
     _BOTH_SUMMARY_RE = re.compile(
         r"국내.{0,10}(해외|미국)"
@@ -446,6 +453,17 @@ def _extract_ranking_type(message: str) -> str:
     return "trading-value"  # 기본값
 
 
+def _extract_ranking_market(message: str) -> str:
+    """ranking 요청의 대상 시장 추출. 해외 키워드 없으면 'domestic'."""
+    if re.search(r"뉴욕|NYSE|nyse|뉴욕\s*증권", message, re.IGNORECASE):
+        return "nyse"
+    if re.search(r"나스닥|NASDAQ|nasdaq|NAS", message, re.IGNORECASE):
+        return "nasdaq"
+    if re.search(r"해외\s*(주식|증시|시장|랭킹|순위)?|미국\s*(주식|증시|시장|랭킹|순위)?|overseas|foreign", message, re.IGNORECASE):
+        return "foreign"
+    return "domestic"
+
+
 def _extract_currency_pair(message: str) -> str:
     if re.search(r"유로|EUR", message, re.IGNORECASE):
         return "EURKRW"
@@ -497,6 +515,7 @@ def _extract_params(intent: str, message: str) -> dict:
     if intent == "ranking":
         return {
             "ranking_type": _extract_ranking_type(message),
+            "market":       _extract_ranking_market(message),
         }
 
     if intent == "exchange_rate":

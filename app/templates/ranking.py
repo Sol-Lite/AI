@@ -49,8 +49,15 @@ def format_ranking(data: dict) -> str:
         is_default   = data.get("is_default", False)
 
     label = _RANKING_TYPE_LABEL.get(ranking_type, "순위")
+    is_foreign = market == "foreign"
 
-    sections = [f"**국내 {label} TOP 10**", _SEP]
+    if is_foreign:
+        exchange_label = {"NAS": "나스닥", "NYS": "뉴욕", "all": "전체"}.get(
+            data.get("exchange", "NAS") if not isinstance(data, list) else "NAS", "해외"
+        )
+        sections = [f"**해외({exchange_label}) {label} TOP 10**", _SEP]
+    else:
+        sections = [f"**국내 {label} TOP 10**", _SEP]
 
     if is_default:
         sections.append("※ 요청하신 순위 유형을 정확히 인식하지 못해 거래량 순위로 보여드립니다.")
@@ -62,8 +69,6 @@ def format_ranking(data: dict) -> str:
 
     for item in stocks[:10]:
         rank        = item.get("rank") or item.get("Rank", "")
-        name        = item.get("name") or item.get("stockName", item.get("stockCode", ""))
-        price       = item.get("price") or item.get("currentPrice", 0)
         change_rate = item.get("changeRate") or item.get("priceChangeRate", 0)
 
         # sign: "2"=상승, "5"=하락, "3"=보합, 나머지는 changeRate로 판단
@@ -79,13 +84,26 @@ def format_ranking(data: dict) -> str:
         else:
             sign = None  # 보합
 
-        rate_str  = f"{sign}{abs(float(change_rate or 0)):.2f}%" if sign else "0.00%"
-        price_str = f"{float(price or 0):,.0f}원"
+        rate_str = f"{sign}{abs(float(change_rate or 0)):.2f}%" if sign else "0.00%"
 
-        block = [
-            f"**{rank}위  {name}**",
-            f"{price_str}  {rate_str}",
-        ]
+        if is_foreign:
+            stock_code = item.get("stockCode", "")
+            name       = item.get("name") or item.get("nameEn") or stock_code
+            price      = item.get("price", 0)
+            price_str  = f"${float(price or 0):,.2f}"
+            block = [
+                f"**{rank}위  {name}** ({stock_code})",
+                f"{price_str}  {rate_str}",
+            ]
+        else:
+            name      = item.get("name") or item.get("stockName", item.get("stockCode", ""))
+            price     = item.get("price") or item.get("currentPrice", 0)
+            price_str = f"{float(price or 0):,.0f}원"
+            block = [
+                f"**{rank}위  {name}**",
+                f"{price_str}  {rate_str}",
+            ]
+
         sections.append("  \n".join(block))
 
     sections.append(_SEP)

@@ -241,17 +241,47 @@ def _fetch_daily(stock_code: str, date: str) -> dict:
 # ── ranking ───────────────────────────────────────────────────────────────────
 _VALID_RANKING_TYPES = {"trading-volume", "trading-value", "rising", "falling", "market-cap"}
 
+# 해외 시장 키워드 → Spring API exchange 파라미터 매핑
+_FOREIGN_MARKET_ALIASES = {
+    "foreign": "NAS", "overseas": "NAS", "us": "NAS",
+    "nasdaq":  "NAS", "nas":      "NAS",
+    "nyse":    "NYS", "nys":      "NYS",
+    "all":     "all",
+}
+
 
 def _fetch_ranking(ranking_type: str | None, market: str | None = None) -> dict:
     is_default = ranking_type not in _VALID_RANKING_TYPES
     api_type = ranking_type if not is_default else "trading-volume"
+
+    exchange = _FOREIGN_MARKET_ALIASES.get((market or "").lower())
+    if exchange:
+        return _fetch_foreign_ranking(api_type, exchange, is_default)
+
+    # 국내 랭킹
     stocks = _call_spring_api(
         "/api/market/stocks/ranking",
-        {"type": api_type}
+        {"type": api_type},
     )
     return {
         "type":       api_type,
         "is_default": is_default,
+        "market":     "domestic",
+        "stocks":     stocks if isinstance(stocks, list) else [],
+    }
+
+
+def _fetch_foreign_ranking(ranking_type: str, exchange: str, is_default: bool = False) -> dict:
+    """해외주식 순위 조회 — GET /api/market/foreign-stocks/ranking"""
+    stocks = _call_spring_api(
+        "/api/market/foreign-stocks/ranking",
+        {"type": ranking_type, "exchange": exchange},
+    )
+    return {
+        "type":       ranking_type,
+        "is_default": is_default,
+        "market":     "foreign",
+        "exchange":   exchange,
         "stocks":     stocks if isinstance(stocks, list) else [],
     }
 

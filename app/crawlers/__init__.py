@@ -4,6 +4,9 @@ from datetime import datetime
 from app.crawlers.scheduled_crawler import run_job as _run_stock_job, load_kospi200, load_nasdaq100, SCHEDULE_INTERVAL
 from app.crawlers.kosdaq_crawler import run_job as _run_kosdaq_job
 from app.crawlers.nasdaq_crawler import run_job as _run_nasdaq_job
+# TODO: interval 크롤러 파일 삭제 시 아래 두 줄 제거
+from app.crawlers.interval_news_crawler import run as _run_interval_news
+from app.crawlers.interval_nasdaq_crawler import run as _run_interval_nasdaq
 
 import os as _os
 
@@ -71,15 +74,19 @@ def start():
     _threads.clear()
 
     for target, name in [
-        (_stock_loop,  "crawler-stock"),
-        (_kosdaq_loop, "crawler-kosdaq"),
-        (_nasdaq_loop, "crawler-nasdaq"),
+        (_stock_loop,          "crawler-stock"),
+        (_kosdaq_loop,         "crawler-kosdaq"),
+        (_nasdaq_loop,         "crawler-nasdaq"),
+        # TODO: interval 크롤러 파일 삭제 시 아래 두 줄 제거
+        (lambda: _run_interval_news(_stop_event),   "crawler-interval-news"),
+        (lambda: _run_interval_nasdaq(_stop_event), "crawler-interval-nasdaq"),
     ]:
         t = threading.Thread(target=target, daemon=True, name=name)
         t.start()
         _threads.append(t)
 
-    print("[crawler] 백그라운드 크롤러 3개 시작 (stock/kosdaq/nasdaq)")
+    # TODO: interval 크롤러 파일 삭제 시 → 5개를 3개로, 괄호 안 이름도 정리
+    print("[crawler] 백그라운드 크롤러 5개 시작 (stock/kosdaq/nasdaq/interval-news/interval-nasdaq)")
 
 
 def stop():
