@@ -1,48 +1,118 @@
-# 투자 챗봇 (Investment Chatbot)
+# 🧠 AI Investment Chatbot Server
 
-개인 투자 계좌와 연동된 챗봇입니다.
-룰 베이스 라우터가 의도를 감지하고, 단순 조회는 템플릿으로 응답하며 복잡한 자연어 질문은 단일 LLM 에이전트가 처리합니다.
-
----
-
-## 기술 스택
-
-| 분류        | 기술                                          |
-| ----------- | --------------------------------------------- |
-| API 서버    | FastAPI                                       |
-| AI agent    | Ollama (`llama3.1:8b`) — 5개 도구 단일 에이전트 |
-| 계좌 DB     | Oracle DB (`oracledb`)                        |
-| 뉴스 DB     | MongoDB Atlas (`sollite` DB)                  |
-| 채팅 기록   | MongoDB Atlas (`sollite.chat_history`)        |
-| 시장 데이터 | Spring API (`localhost:8080`)                 |
-| 인증        | JWT (HTTPBearer, HS384)                       |
+자연어로 주가 조회, 포트폴리오 분석, 매매 주문, 시황 요약을 처리하는 **모의 투자 서비스의 AI 챗봇 백엔드**입니다.
 
 ---
 
-## 폴더 구조
+## 📌 Overview
+
+이 서버는 **FastAPI** 기반의 AI 챗봇 엔드포인트를 제공하며, 사용자의 자연어 입력을 분석해 적절한 투자 데이터를 응답합니다.
+
+대부분의 요청은 **규칙 기반 의도 감지(Intent Detection)** 로 빠르게 처리되고, 포트폴리오 분석·거래내역 조회처럼 복잡한 질문은 **LLM Tool Calling Agent** 로 위임합니다. 시황 요약에 필요한 뉴스는 **자체 크롤러가 30분마다 자동 수집**하고 KoBART 모델로 요약해 MongoDB에 저장합니다.
+
+Spring Boot 메인 백엔드, React 프론트엔드와 연동되어 주문 실행 및 계좌 데이터를 실시간으로 처리합니다.
+
+---
+
+## 🚀 Key Features
+
+- **하이브리드 의도 처리**: 14개 Intent를 정규식 기반으로 분류하고, 복잡한 분석은 LLM에 위임
+- **LLM Tool Calling Agent**: 포트폴리오 분석, 거래내역 조회 등에서 최대 5턴의 도구 반복 호출
+- **문맥 인식 대화**: MongoDB 대화 기록을 로드해 이전 맥락 기반의 follow-up 질문 처리
+- **Shortcut 메커니즘**: 종목명만 입력해도 직전 조회 유형 자동 재실행 (LLM 호출 없음)
+- **자동 뉴스 크롤링**: KOSPI200 + NASDAQ100 종목 뉴스를 30분마다 멀티스레드로 자동 수집
+- **뉴스 자동 요약**: KoBART(`EbanLee/kobart-summary-v3`) 모델로 뉴스 본문 요약
+- **위젯 드래그 연동**: 프론트엔드 위젯에서 종목코드 힌트를 직접 주입해 CSV 미등록 종목도 처리
+- **매매·환전 주문 연동**: Spring 백엔드와 REST API로 실제 주문 실행
+- **입력 검증**: 미완성 한글 자모, 지원 범위 외 질문에 대한 안내 응답 자동 반환
+- **다중 배포 환경**: Ollama(로컬) / AWS SageMaker(운영) LLM 전환 지원
+
+---
+
+## 🏗️ Architecture
+
+```
+[사용자]
+   │  자연어 입력 (예: "삼성전자 시세")
+   ▼
+[React Frontend]
+   │  POST /chat  { message, stock_code_hint?, stock_name_hint? }
+   ▼
+[AI Server - FastAPI]  ← 이 서버
+   ├─ 입력 검증 (미완성 자모, 너무 짧은 입력)
+   ├─ try_shortcut()  → 직전 조회 재실행 (LLM 없이)
+   ├─ detect()        → 규칙 기반 Intent + 파라미터 추출
+   ├─ pre_dispatch()  → 문맥 기반 Intent 보정
+   ├─ dispatch()      → Intent별 Handler 실행
+   │       ├─ 규칙 기반 Handler (시세/지수/환율/순위/잔고/시황/주문)
+   │       └─ LLM Agent (포트폴리오/거래내역/unknown)
+   │              └─ Tool Calling Loop (최대 5턴)
+   │                     ├─ get_stock_price
+   │                     ├─ get_stock_news
+   │                     ├─ get_portfolio_info
+   │                     ├─ get_market_summary
+   │                     └─ get_trade_history
+   └─ 대화 기록 저장 (MongoDB)
+
+[외부 연동]
+   ├─ Spring Backend  → 시장 데이터, 계좌/잔고/주문/거래내역 REST API
+   ├─ MongoDB         → 대화 기록, 뉴스 저장
+   ├─ Oracle DB       → 종목 마스터 데이터
+   └─ LLM             → Ollama (llama3.1:8b) / AWS SageMaker
+
+[크롤러 - 백그라운드 스레드]
+   30분마다 KOSPI200 + NASDAQ100 뉴스 수집
+   → KoBART 요약 → MongoDB stock_news 컬렉션 저장
+```
+
+> **이 AI 서버의 역할**: Spring 메인 백엔드와 프론트엔드 사이에서 자연어 해석·데이터 가공·AI 추론을 전담합니다. 주문 실행 등 트랜잭션 처리는 Spring에 위임합니다.
+
+---
+
+## ⚙️ 기술 스택
+
+| 분류 | 기술 |
+|------|------|
+| **Language** | Python 3.11+ |
+| **Framework** | FastAPI 0.111+, Uvicorn |
+| **LLM** | Ollama (`llama3.1:8b`) / AWS SageMaker (TGI) |
+| **요약 모델** | HuggingFace Transformers — `EbanLee/kobart-summary-v3` (KoBART) |
+| **Database** | MongoDB 4.6+ (대화 기록, 뉴스) / Oracle DB 2.0+ (종목 마스터) |
+| **HTTP Client** | httpx, requests |
+| **크롤링** | BeautifulSoup4, 멀티스레드 (`ThreadPoolExecutor`) |
+| **설정 관리** | python-dotenv, pydantic-settings |
+| **인증** | JWT (HTTPBearer, HS384) |
+| **AWS** | boto3 (SageMaker Runtime) |
+| **기타** | json-repair (LLM 응답 JSON 복구), certifi |
+
+---
+
+## 📂 폴더 구조
 
 ```
 AI/
 ├── app/
-│   ├── main.py                        # FastAPI 앱, POST /chat 엔드포인트
-│   │                                  # 모호한 follow-up 감지 + 맥락 기반 intent 재분류
+│   ├── main.py                        # FastAPI 진입점, POST /chat 엔드포인트
+│   │                                  # 입력 검증 + 맥락 기반 intent 재분류
+│   ├── stock_ref.py                   # 공유 CSV 종목 참조 (이름↔코드, 동의어 650개+)
 │   │
 │   ├── core/
 │   │   ├── auth.py                    # JWT 검증, user_context 추출
-│   │   └── config.py                  # 환경변수 로드 (.env)
+│   │   ├── config.py                  # 환경변수 로드 (.env)
+│   │   └── llm.py                     # LLM 호출 추상화 (Ollama / SageMaker)
 │   │
 │   ├── db/
 │   │   ├── oracle.py                  # Oracle 연결 (fetch_one / fetch_all / resolve_stock_code)
 │   │   └── mongo.py                   # MongoDB 연결 + 채팅 기록 턴 기반 저장
 │   │
-│   ├── chatbot/                       # 룰 베이스 라우터
+│   ├── chatbot/                       # 규칙 기반 라우터
 │   │   ├── router.py                  # 키워드 기반 의도 감지 + follow-up 대명사 감지
 │   │   ├── dispatcher.py              # 라우팅 상수, dispatch / try_shortcut / pre_dispatch
 │   │   ├── handlers.py                # intent별 핸들러 함수 (_handle_*)
 │   │   └── session.py                 # 세션 히스토리 분석 헬퍼
 │   │
 │   ├── agent/                         # 단일 LLM 에이전트
-│   │   └── llm_agent.py               # ReAct 에이전트 (5개 도구, 대화 기록, 맥락 보강)
+│   │   └── llm_agent.py               # Tool Calling 에이전트 (5개 도구, 대화 기록, 맥락 보강)
 │   │
 │   ├── data/                          # 외부 데이터 조회
 │   │   ├── market.py                  # 시세·차트·순위·지수·환율 (Spring API)
@@ -51,7 +121,12 @@ AI/
 │   │   ├── portfolio.py               # 포트폴리오 분석 (Oracle DB + Spring API)
 │   │   └── trades.py                  # 거래내역 조회 (Oracle DB)
 │   │
-│   ├── stock_ref.py                   # 공유 CSV 종목 참조 (이름↔코드, 동의어 650개+)
+│   ├── crawlers/                      # 백그라운드 뉴스 크롤러
+│   │   ├── __init__.py                # start() / stop() 인터페이스
+│   │   ├── scheduled_crawler.py       # KOSPI200 + NASDAQ100 통합 스케줄러 (30분)
+│   │   ├── kosdaq_crawler.py          # KOSDAQ 뉴스 크롤러
+│   │   ├── nasdaq_crawler.py          # NASDAQ 뉴스 크롤러
+│   │   └── summarizer.py              # KoBART 기반 뉴스 요약
 │   │
 │   └── templates/                     # 응답 포맷 함수 모음
 │       ├── index.py                   # format_index()
@@ -59,12 +134,13 @@ AI/
 │       ├── ranking.py                 # format_ranking()
 │       ├── chart_price.py             # format_chart_price()
 │       ├── account.py                 # format_balance(balance_type)
-│       ├── stock_news.py              # format_korea_summary() / format_us_summary() / format_stock_news() / format_holdings_news()
-│       ├── order.py                   # format_order()
+│       ├── stock_news.py              # format_korea_summary() / format_us_summary() / format_stock_news()
 │       ├── trades.py                  # format_trades() / format_trades_by_date()
 │       ├── portfolio.py               # format_portfolio() / format_portfolio_analysis(metric_type)
 │       └── guide.py                   # _GUIDE_MESSAGE / _FALLBACK_MESSAGE / _INVEST_ADVICE_MESSAGE
 │
+├── kospi200_targets.csv               # KOSPI200 종목 목록 (한글명 ↔ 코드)
+├── NASDAQ100.csv                      # NASDAQ100 종목 목록 (한글명 ↔ 티커)
 ├── test_scenarios.md                  # 챗봇 기능별 테스트 시나리오
 ├── .env
 ├── .gitignore
@@ -74,7 +150,7 @@ AI/
 
 ---
 
-## 전체 처리 흐름
+## 🔄 전체 처리 흐름
 
 ```
 사용자 메시지
@@ -134,9 +210,239 @@ MongoDB에 턴 단위 저장
 ChatResponse { type, reply, stock_code }
 ```
 
+### 🧩 처리 흐름 예시
+
+#### 흐름 1 — 규칙 기반 처리 (빠른 경로)
+
+> 사용자: "삼성전자 시세 알려줘"
+
+```
+1. POST /chat  { "message": "삼성전자 시세 알려줘" }
+2. 미완성 자모 없음 → 통과
+3. try_shortcut() — 의도 키워드(시세) 존재 → shortcut 미적용
+4. detect()  [router.py]
+   - "시세" 패턴 → intent = "chart_price"
+   - 종목 추출: "삼성전자" → CSV 검색 → "005930"
+5. dispatch() → _handle_chart_price()  [handlers.py]
+   - Spring API 호출: GET /api/market/stocks/005930/price
+   - templates/chart_price.py로 마크다운 포맷팅
+6. MongoDB에 대화 턴 저장
+7. 응답: { "type": "stock_price", "reply": "...", "stock_code": "005930" }
+```
+
+#### 흐름 2 — LLM Agent 처리 (복잡한 질문)
+
+> 사용자: "내 포트폴리오에서 수익률 가장 높은 종목은?"
+
+```
+1. detect() → intent = "portfolio"
+2. pre_dispatch() — 크로스도메인 패턴 감지 → LLM Agent 위임
+3. _handle_portfolio() → llm_agent.ask_general()
+4. LLM Agent 실행
+   ├─ MongoDB에서 최근 6턴 대화 기록 로드
+   ├─ system + history + 사용자 질문 → LLM 전송
+   ├─ LLM: tool_call { get_portfolio_info(info_type="returns") }
+   ├─ 도구 실행 → Spring API에서 수익률 데이터 조회
+   ├─ 결과를 LLM에 재전송 (최대 5턴 반복)
+   └─ LLM 최종 응답 생성
+5. 응답: { "type": "text", "reply": "삼성전자가 +18.3%로 ..." }
+```
+
+#### 흐름 3 — Shortcut (직전 조회 재실행)
+
+> 사용자: (삼성전자 시세 조회 직후) "현대차"
+
+```
+1. try_shortcut()
+   - 의도 키워드 없음 확인
+   - "현대차" → CSV 검색 → "005380"
+   - MongoDB에서 직전 tool 확인 → "get_stock_price"
+   - 바로 Spring API 호출 → 응답 반환 (LLM 호출 없음)
+```
+
+#### 흐름 4 — 뉴스 크롤링 (백그라운드)
+
+```
+서버 시작 시 crawler.start() 실행
+└─ scheduled_crawler.py
+    ├─ 30분마다 반복 실행
+    ├─ KOSPI200 + NASDAQ100 종목 목록 순회
+    ├─ 네이버 모바일 증권 뉴스 API 호출
+    ├─ BeautifulSoup4로 본문 파싱 (50자 미만 기사 제외)
+    ├─ summarizer.py → KoBART 요약
+    └─ MongoDB stock_news 컬렉션에 upsert (중복 방지)
+```
+
 ---
 
-## 기능별 상세
+## 🧪 API 명세 및 예시
+
+### `POST /chat`
+
+**Request:**
+
+```http
+POST /chat
+Authorization: Bearer <JWT>
+Content-Type: application/json
+
+{
+  "message": "삼성전자 현재가"
+}
+```
+
+**Response 타입별 구조:**
+
+| `type` 값 | 프론트엔드 동작 |
+|-----------|--------------|
+| `text` | 마크다운 텍스트 응답 |
+| `stock_price` | 주가 카드 렌더링 |
+| `stock_news` | 뉴스 카드 렌더링 |
+| `order` | 주문 폼 활성화 (`stock_code` 자동 입력) |
+| `exchange` | 환전 화면 활성화 |
+| `ranking` | 순위 카드 렌더링 |
+| `index` | 지수 카드 렌더링 |
+| `balance` | 잔고 카드 렌더링 |
+| `market_overview` | 시황 카드 렌더링 |
+
+**주가 조회 응답 예시:**
+
+```json
+{
+  "type": "stock_price",
+  "reply": "## 삼성전자 (005930)\n**현재가**: 71,800원\n**등락률**: +1.27%\n**거래량**: 12,345,678주",
+  "stock_code": "005930",
+  "stock_name": null,
+  "data": { "current_price": 71800, "change_rate": 1.27 }
+}
+```
+
+**매수 주문 연동 응답 예시:**
+
+```json
+{
+  "type": "order",
+  "reply": "**삼성전자** 주문 정보를 입력하세요:",
+  "stock_code": "005930"
+}
+```
+
+**환전 응답 예시:**
+
+```json
+{
+  "type": "exchange",
+  "reply": "환전 정보를 입력하세요:",
+  "stock_code": null
+}
+```
+
+---
+
+## ⚙️ Setup & Run
+
+### 1. 환경변수 설정 (`.env`)
+
+```env
+# 실행 환경
+APP_ENV=local                        # local | prod
+ENABLE_CRAWLERS=true                 # 뉴스 크롤러 활성화 여부
+
+# LLM
+LLM_PROVIDER=ollama                  # ollama | sagemaker
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.1:8b
+# SageMaker 사용 시
+SAGEMAKER_ENDPOINT_NAME=<endpoint>
+SAGEMAKER_RUNTIME_MODE=tgi           # tgi | ollama_proxy
+AWS_REGION=ap-northeast-2
+
+# Database
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB=mockstock
+ORACLE_DSN=localhost:1521/XEPDB1
+ORACLE_USER=mockstock
+ORACLE_PASSWORD=<password>
+
+# Spring 백엔드
+SPRING_BASE_URL=http://localhost:8080
+
+# 인증
+JWT_SECRET_KEY=<secret>
+```
+
+> SageMaker 커스텀 컨테이너(ollama-proxy) 배포 방법은 `sagemaker/ollama-proxy/README.md`를 참고하세요.
+
+### 2. 의존성 설치
+
+```bash
+pip install -r requirements.txt
+```
+
+> KoBART 요약 모델 사용 시 PyTorch + Transformers 설치 필요 (`torch>=2.2`).  
+> GPU 없이도 동작하지만 CPU 추론은 속도가 느릴 수 있습니다.
+
+### 3. LLM 준비 (Ollama 로컬 실행 시)
+
+```bash
+ollama pull llama3.1:8b
+ollama serve
+```
+
+### 4. 서버 실행
+
+```bash
+# 개발
+uvicorn app.main:app --reload --port 8000
+
+# 운영
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+### 5. 헬스 체크
+
+```bash
+curl http://localhost:8000/health
+# {"status":"ok","app_env":"local"}
+```
+
+### 6. 호출 예시
+
+```bash
+# 지수 조회
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "오늘 코스피 어때?"}'
+
+# 종목 시세
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "삼성전자 현재가 알려줘"}'
+
+# 포트폴리오 세부 질문 (LLM 에이전트)
+curl -X POST http://localhost:8000/chat \
+  -H "Authorization: Bearer <JWT>" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "내 포트폴리오에서 수익률 가장 좋은 종목은?"}'
+```
+
+---
+
+## 📈 Future Improvements
+
+- **스트리밍 응답**: `/chat` 엔드포인트에 SSE(Server-Sent Events) 적용으로 LLM 응답 실시간 출력
+- **LLM 교체 유연성**: OpenAI / Claude API 등 프로바이더 추상화 레이어 확장
+- **Intent 분류 고도화**: 정규식 기반 → 경량 분류 모델(DistilBERT 등) 적용으로 엣지 케이스 대응
+- **크롤러 안정화**: IP 차단 대응을 위한 프록시 로테이션, 재시도 로직 강화
+- **Unknown 폴백 최적화**: LLM 호출 전 1차 필터로 지원 범위 외 질문 조기 차단
+- **Redis 캐싱**: 자주 조회되는 시세/지수 데이터 응답 속도 개선
+- **모니터링**: Prometheus + Grafana로 Intent별 호출 빈도, LLM 응답 시간 추적
+
+---
+
+## 📋 기능별 상세 (Intent 참고)
 
 ### 인사 / 도움말
 
@@ -465,74 +771,3 @@ Content-Type: application/json
 | `order`      | 주문 폼 활성화, `stock_code` 자동 입력   |
 | `exchange`   | 환전 화면 활성화                         |
 
----
-
-## 설치 및 실행
-
-### 환경변수 설정 (`.env`)
-
-```env
-JWT_SECRET_KEY=<secret>
-
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1:8b
-SAGEMAKER_ENDPOINT_NAME=
-SAGEMAKER_RUNTIME_MODE=tgi
-
-ORACLE_DSN=<host>:<port>/<service>
-ORACLE_USER=<user>
-ORACLE_PASSWORD=<password>
-
-MONGO_URI=mongodb+srv://...
-MONGO_DB=sollite
-
-SPRING_BASE_URL=http://localhost:8080
-```
-
-SageMaker 안에 Ollama 커스텀 컨테이너를 쓸 때는 아래처럼 바꿉니다.
-
-```env
-LLM_PROVIDER=sagemaker
-SAGEMAKER_RUNTIME_MODE=ollama_proxy
-SAGEMAKER_ENDPOINT_NAME=<custom-endpoint-name>
-OLLAMA_MODEL=llama3.1:8b
-```
-
-배포 절차와 커스텀 컨테이너 스펙은 [sagemaker/ollama-proxy/README.md](/Users/inter4259/project/Sol-Lite/AI/sagemaker/ollama-proxy/README.md)에 정리했습니다.
-
-### 실행
-
-```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-### 호출 예시
-
-```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000  
-# 지수 조회
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer <JWT>" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "오늘 코스피 어때?"}'
-
-# 종목 시세
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer <JWT>" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "삼성전자 현재가 알려줘"}'
-
-# 매수 버튼 활성화
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer <JWT>" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "삼성전자 매수하고 싶어"}'
-
-# 포트폴리오 세부 질문 (LLM 에이전트)
-curl -X POST http://localhost:8000/chat \
-  -H "Authorization: Bearer <JWT>" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "내 포트폴리오에서 수익률 가장 좋은 종목은?"}'
-```
